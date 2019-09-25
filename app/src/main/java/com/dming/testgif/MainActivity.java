@@ -33,6 +33,12 @@ public class MainActivity extends AppCompatActivity {
                 } else {
                     Toast.makeText(MainActivity.this, "file not exists!!!", Toast.LENGTH_SHORT).show();
                 }
+//                File file2 = new File(Environment.getExternalStorageDirectory(), "1/test2.gif");
+//                if (file2.exists()) {
+//                    testGif(file2.getPath());
+//                } else {
+//                    Toast.makeText(MainActivity.this, "file2 not exists!!!", Toast.LENGTH_SHORT).show();
+//                }
             }
         });
 
