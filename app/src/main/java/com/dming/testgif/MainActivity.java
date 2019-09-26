@@ -1,21 +1,24 @@
 package com.dming.testgif;
 
 import android.Manifest;
+import android.graphics.Bitmap;
 import android.os.Build;
 import android.os.Bundle;
 import android.os.Environment;
 import android.support.v7.app.AppCompatActivity;
+import android.util.Log;
 import android.view.View;
+import android.widget.ImageView;
 import android.widget.Toast;
 
 import java.io.File;
 
 public class MainActivity extends AppCompatActivity {
 
-    // Used to load the 'native-lib' library on application startup.
-    static {
-        System.loadLibrary("native-lib");
-    }
+    //    private GifHandler mGifHandler;
+    private ImageView mIvShow;
+    private Bitmap mBitmap;
+    private TestGif mTestGif;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -24,29 +27,52 @@ public class MainActivity extends AppCompatActivity {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
             requestPermissions(new String[]{Manifest.permission.WRITE_EXTERNAL_STORAGE, Manifest.permission.READ_EXTERNAL_STORAGE}, 666);
         }
-        findViewById(R.id.sample_text).setOnClickListener(new View.OnClickListener() {
+        mIvShow = findViewById(R.id.iv_show);
+        mTestGif = new TestGif();
+        findViewById(R.id.btn_one).setOnClickListener(new View.OnClickListener() {
             @Override
             public void onClick(View v) {
                 File file = new File(Environment.getExternalStorageDirectory(), "1/test.gif");
                 if (file.exists()) {
-                    testGif(file.getPath());
+                    if (mTestGif.loadGif(file.getPath())) {
+                        mBitmap = Bitmap.createBitmap(mTestGif.getWidth(), mTestGif.getHeight(), Bitmap.Config.ARGB_8888);
+                    }
                 } else {
                     Toast.makeText(MainActivity.this, "file not exists!!!", Toast.LENGTH_SHORT).show();
                 }
-//                File file2 = new File(Environment.getExternalStorageDirectory(), "1/test2.gif");
-//                if (file2.exists()) {
-//                    testGif(file2.getPath());
-//                } else {
-//                    Toast.makeText(MainActivity.this, "file2 not exists!!!", Toast.LENGTH_SHORT).show();
-//                }
             }
         });
-
+        findViewById(R.id.btn_two).setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                File file = new File(Environment.getExternalStorageDirectory(), "1/demo.gif");
+                if (file.exists()) {
+                    testGif();
+                } else {
+                    Toast.makeText(MainActivity.this, "file not exists!!!", Toast.LENGTH_SHORT).show();
+                }
+            }
+        });
     }
 
-    /**
-     * A native method that is implemented by the 'native-lib' native library,
-     * which is packaged with this application.
-     */
-    public native void testGif(String gifPath);
+    public void testGif() {
+        new Thread(new Runnable() {
+            @Override
+            public void run() {
+                mTestGif.testGif(mBitmap, new Runnable() {
+                    @Override
+                    public void run() {
+                        runOnUiThread(new Runnable() {
+                            @Override
+                            public void run() {
+                                Log.i("DMUI", "testGif>>> run");
+                                mIvShow.setImageBitmap(mBitmap);
+                            }
+                        });
+                    }
+                });
+            }
+        }).start();
+    }
+
 }

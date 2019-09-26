@@ -6,6 +6,7 @@ file(GLOB_RECURSE GIF_DIRECTORIES ${CMAKE_SOURCE_DIR}/giflib/*.*)
 add_library(
         native-lib
         SHARED
+#        testgif.cpp
         native-lib.cpp
         ${GIF_DIRECTORIES}
 #        giflib/dgif_lib.c
@@ -20,5 +21,6 @@ add_library(
 
 target_link_libraries(
         native-lib
+        jnigraphics
         log
         android)
