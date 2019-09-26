@@ -45,7 +45,7 @@ public class MainActivity extends AppCompatActivity {
         findViewById(R.id.btn_two).setOnClickListener(new View.OnClickListener() {
             @Override
             public void onClick(View v) {
-                File file = new File(Environment.getExternalStorageDirectory(), "1/demo.gif");
+                File file = new File(Environment.getExternalStorageDirectory(), "1/test.gif");
                 if (file.exists()) {
                     testGif();
                 } else {

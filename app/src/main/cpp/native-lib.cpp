@@ -8,6 +8,7 @@
 #include <android/bitmap.h>
 
 #define UNSIGNED_LITTLE_ENDIAN(lo, hi)    ((lo) | ((hi) << 8))
+#define  RGBA(r, g, b) (((r) & 0xff) << 24 ) | (((g) & 0xff) << 16 ) | (((b) & 0xff) << 8 ) | 0xff
 
 static int width = 0;
 static int height = 0;
@@ -61,12 +62,32 @@ static int loadGifInfo(const char *FileName) {
     return 0;
 }
 
-static void drawBitmap(JNIEnv *env, jobject bitmap, GifRowType *ScreenBuffer) {
+// RGBA_8888
+static void
+drawBitmap(JNIEnv *env, jobject bitmap, ColorMapObject *ColorMap, GifRowType *ScreenBuffer) {
     //
     AndroidBitmapInfo bitmapInfo;
     void *pixels;
     AndroidBitmap_getInfo(env, bitmap, &bitmapInfo);
+//    LOGI("bitmapInfo.format: %d", bitmapInfo.format);
     AndroidBitmap_lockPixels(env, bitmap, &pixels);
+    uint32_t *sPixels = (uint32_t *) pixels;
+//    for (int h = 0; h < bitmapInfo.height; h++) {
+//        for (int w = 0; w < bitmapInfo.width; w++) {
+//            sPixels[bitmapInfo.width * h + w] = 0xff0000FF;
+//        }
+//    }
+
+    GifRowType GifRow;
+    GifColorType *ColorMapEntry;
+    for (int h = 0; h < bitmapInfo.height; h++) {
+        GifRow = ScreenBuffer[h];
+        for (int w = 0; w < bitmapInfo.width; w++) {
+            ColorMapEntry = &ColorMap->Colors[GifRow[w]];
+            sPixels[bitmapInfo.width * h + w] = (uint32_t) (
+                    RGBA(ColorMapEntry->Red, ColorMapEntry->Green, ColorMapEntry->Blue));
+        }
+    }
 
     AndroidBitmap_unlockPixels(env, bitmap);
 }
@@ -114,8 +135,8 @@ static int GIF2RGB(JNIEnv *env, jobject bitmap, jobject runnable) {
 
         memcpy(ScreenBuffer[i], ScreenBuffer[0], Size);
     }
-    drawBitmap(env, bitmap, ScreenBuffer);
-    env->CallVoidMethod(runnable, runMethod);
+//    drawBitmap(env, bitmap, ScreenBuffer);
+//    env->CallVoidMethod(runnable, runMethod);
     /* Scan the content of the GIF file and load the image(s) in: */
     do {
         if (DGifGetRecordType(GifFile, &RecordType) == GIF_ERROR) {
@@ -136,8 +157,7 @@ static int GIF2RGB(JNIEnv *env, jobject bitmap, jobject runnable) {
                      GifFile->Image.Width, Width, Height);
                 if (GifFile->Image.Left + GifFile->Image.Width > GifFile->SWidth ||
                     GifFile->Image.Top + GifFile->Image.Height > GifFile->SHeight) {
-                    LOGI("Image %d is not confined to screen dimension, aborted.\n",
-                         ImageNum);
+                    LOGI("Image %d is not confined to screen dimension, aborted", ImageNum);
                     return -7;
                 }
                 if (GifFile->Image.Interlace) {
@@ -160,7 +180,10 @@ static int GIF2RGB(JNIEnv *env, jobject bitmap, jobject runnable) {
                         }
                     }
                 }
-                drawBitmap(env, bitmap, ScreenBuffer);
+                ColorMap = (GifFile->Image.ColorMap
+                            ? GifFile->Image.ColorMap
+                            : GifFile->SColorMap);
+                drawBitmap(env, bitmap, ColorMap, ScreenBuffer);
                 env->CallVoidMethod(runnable, runMethod);
                 break;
             case EXTENSION_RECORD_TYPE:
@@ -194,14 +217,14 @@ static int GIF2RGB(JNIEnv *env, jobject bitmap, jobject runnable) {
         }
     } while (RecordType != TERMINATE_RECORD_TYPE);
 
-    /* Lets dump it - set the global variables required and do it: */
-    ColorMap = (GifFile->Image.ColorMap
-                ? GifFile->Image.ColorMap
-                : GifFile->SColorMap);
-    if (ColorMap == NULL) {
-        fprintf(stderr, "Gif Image does not have a colormap\n");
-        return -12;
-    }
+//    /* Lets dump it - set the global variables required and do it: */
+//    ColorMap = (GifFile->Image.ColorMap
+//                ? GifFile->Image.ColorMap
+//                : GifFile->SColorMap);
+//    if (ColorMap == NULL) {
+//        fprintf(stderr, "Gif Image does not have a colormap\n");
+//        return -12;
+//    }
 
     free(ScreenBuffer);
 
