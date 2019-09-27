@@ -36,23 +36,24 @@ public class MainActivity extends AppCompatActivity {
                 if (file.exists()) {
                     if (mTestGif.loadGif(file.getPath())) {
                         mBitmap = Bitmap.createBitmap(mTestGif.getWidth(), mTestGif.getHeight(), Bitmap.Config.ARGB_8888);
+                        testGif();
                     }
                 } else {
                     Toast.makeText(MainActivity.this, "file not exists!!!", Toast.LENGTH_SHORT).show();
                 }
             }
         });
-        findViewById(R.id.btn_two).setOnClickListener(new View.OnClickListener() {
-            @Override
-            public void onClick(View v) {
-                File file = new File(Environment.getExternalStorageDirectory(), "1/test.gif");
-                if (file.exists()) {
-                    testGif();
-                } else {
-                    Toast.makeText(MainActivity.this, "file not exists!!!", Toast.LENGTH_SHORT).show();
-                }
-            }
-        });
+//        findViewById(R.id.btn_two).setOnClickListener(new View.OnClickListener() {
+//            @Override
+//            public void onClick(View v) {
+//                File file = new File(Environment.getExternalStorageDirectory(), "1/demo.gif");
+//                if (file.exists()) {
+//                    testGif();
+//                } else {
+//                    Toast.makeText(MainActivity.this, "file not exists!!!", Toast.LENGTH_SHORT).show();
+//                }
+//            }
+//        });
     }
 
     public void testGif() {

@@ -8,44 +8,17 @@
 #include <android/bitmap.h>
 
 #define UNSIGNED_LITTLE_ENDIAN(lo, hi)    ((lo) | ((hi) << 8))
-#define  RGBA(r, g, b) (((r) & 0xff) << 24 ) | (((g) & 0xff) << 16 ) | (((b) & 0xff) << 8 ) | 0xff
+#define  MAKE_COLOR_ABGR(r, g, b) ((0xff) << 24 ) | ((b) << 16 ) | ((g) << 8 ) | ((r) & 0xff)
+//typedef uint32_t ColorARGB;
 
 static int width = 0;
 static int height = 0;
 static GifFileType *GifFile = NULL;
+static int transparentColorIndex = 0;
 
 static void PrintGifError(int Error) {
     LOGI("PrintGifError: %s", GifErrorString(Error));
 }
-
-//static int DumpScreen2RGB(ColorMapObject *ColorMap,
-//                          GifRowType *ScreenBuffer,
-//                          int ScreenWidth, int ScreenHeight) {
-//    int i, j;
-//    GifRowType GifRow;
-//    GifColorType *ColorMapEntry;
-//    unsigned char *Buffer, *BufferP;
-//
-//    if ((Buffer = (unsigned char *) malloc(ScreenWidth * 3)) == NULL) {
-//        LOGE("Failed to allocate memory required, aborted.");
-//        return -1;
-//    }
-//    for (i = 0; i < ScreenHeight; i++) {
-//        GifRow = ScreenBuffer[i];
-//        LOGI("=->%-4d", ScreenHeight - i);
-//        for (j = 0, BufferP = Buffer; j < ScreenWidth; j++) {
-//            ColorMapEntry = &ColorMap->Colors[GifRow[j]];
-//            *BufferP++ = ColorMapEntry->Red;
-//            *BufferP++ = ColorMapEntry->Green;
-//            *BufferP++ = ColorMapEntry->Blue;
-//        }
-////        if (fwrite(Buffer, ScreenWidth * 3, 1, rgbfp[0]) != 1) {
-////            LOGE("Write to file(s) failed.");
-////            return -2;
-////        }
-//    }
-//    free((char *) Buffer);
-//}
 
 static int loadGifInfo(const char *FileName) {
     int Error;
@@ -62,48 +35,67 @@ static int loadGifInfo(const char *FileName) {
     return 0;
 }
 
+static uint32_t gifColorToColorARGB(const GifColorType &color) {
+    return (uint32_t) (MAKE_COLOR_ABGR(color.Red, color.Green, color.Blue));
+}
+
+static uint32_t getColorARGB(ColorMapObject *colorMap, int transparentColorIndex,
+                             GifByteType colorIndex) {
+    if (colorIndex == transparentColorIndex) {
+        return 0;
+    }
+//    LOGI("colorIndex: %d", colorIndex);
+    return gifColorToColorARGB(colorMap->Colors[colorIndex]);
+}
+
 // RGBA_8888
 static void
-drawBitmap(JNIEnv *env, jobject bitmap, ColorMapObject *ColorMap, GifRowType *ScreenBuffer) {
+drawBitmap(JNIEnv *env, jobject bitmap, GifFileType *GifFile, GifRowType *ScreenBuffer, int left,
+           int top, int width, int height) {
     //
     AndroidBitmapInfo bitmapInfo;
     void *pixels;
     AndroidBitmap_getInfo(env, bitmap, &bitmapInfo);
-//    LOGI("bitmapInfo.format: %d", bitmapInfo.format);
     AndroidBitmap_lockPixels(env, bitmap, &pixels);
     uint32_t *sPixels = (uint32_t *) pixels;
-//    for (int h = 0; h < bitmapInfo.height; h++) {
-//        for (int w = 0; w < bitmapInfo.width; w++) {
-//            sPixels[bitmapInfo.width * h + w] = 0xff0000FF;
-//        }
-//    }
-
-    GifRowType GifRow;
-    GifColorType *ColorMapEntry;
-    for (int h = 0; h < bitmapInfo.height; h++) {
-        GifRow = ScreenBuffer[h];
-        for (int w = 0; w < bitmapInfo.width; w++) {
-            ColorMapEntry = &ColorMap->Colors[GifRow[w]];
-            sPixels[bitmapInfo.width * h + w] = (uint32_t) (
-                    RGBA(ColorMapEntry->Red, ColorMapEntry->Green, ColorMapEntry->Blue));
+    ColorMapObject *ColorMap;
+    ColorMap = (GifFile->Image.ColorMap
+                ? GifFile->Image.ColorMap
+                : GifFile->SColorMap);
+    for (int h = top; h < height; h++) {
+        for (int w = left; w < width; w++) {
+            sPixels[(bitmapInfo.stride / 4) * h + w] = getColorARGB(ColorMap,
+                                                                    transparentColorIndex,
+                                                                    ScreenBuffer[h][w]);
         }
     }
-
+//    for (int h = 0; h < bitmapInfo.height; h++) {
+//        for (int w = 0; w < bitmapInfo.width; w++) {
+////            if (ScreenBuffer[h][w] < ColorMap->ColorCount) {
+////                sPixels[(bitmapInfo.stride / 4) * h + w] = 0xFF0000ff;
+////            } else {
+//                sPixels[(bitmapInfo.stride / 4) * h + w] = getColorARGB(ColorMap,
+//                                                                        transparentColorIndex,
+//                                                                        ScreenBuffer[h][w]);
+////            }
+//        }
+//    }
     AndroidBitmap_unlockPixels(env, bitmap);
 }
 
 static int GIF2RGB(JNIEnv *env, jobject bitmap, jobject runnable) {
-    int i, j, Size, Row, Col, Width, Height, ExtCode, Count;
+    int i, j, Row, Col, Width, Height, ExtCode;
     GifRecordType RecordType;
     GifByteType *Extension;
     GifRowType *ScreenBuffer;
     int InterlacedOffset[] = {0, 4, 2, 1}; /* The way Interlaced image should. */
     int InterlacedJumps[] = {8, 8, 4, 2};    /* be read - offsets and jumps... */
     int ImageNum = 0;
-    ColorMapObject *ColorMap;
     int Error;
     int delayTime;
     GifByteType *GifExtension;
+    transparentColorIndex = NO_TRANSPARENT_COLOR;
+    size_t size;
 
     jclass runClass = env->GetObjectClass(runnable);
     jmethodID runMethod = env->GetMethodID(runClass, "run", "()V");
@@ -114,26 +106,27 @@ static int GIF2RGB(JNIEnv *env, jobject bitmap, jobject runnable) {
      * GIF file parameters.
      */
     if ((ScreenBuffer = (GifRowType *)
-            malloc(GifFile->SHeight * sizeof(GifRowType))) == NULL)
+            malloc(GifFile->SHeight * sizeof(GifRowType))) == NULL) {
         LOGI("Failed to allocate memory required, aborted.");
-
-    Size = GifFile->SWidth * sizeof(GifPixelType);/* Size in bytes one row.*/
-    if ((ScreenBuffer[0] = (GifRowType) malloc(Size)) == NULL) /* First row. */
+        return -11;
+    }
+    size = GifFile->SWidth * sizeof(GifPixelType);/* Size in bytes one row.*/
+    if ((ScreenBuffer[0] = (GifRowType) malloc(size)) == NULL) /* First row. */
     {
         LOGE("Failed to allocate memory required, aborted.");
         return -3;
     }
-
+    GifPixelType *buffer;
+    buffer = (GifPixelType *) (ScreenBuffer[0]);
     for (i = 0; i < GifFile->SWidth; i++)  /* Set its color to BackGround. */
-        ScreenBuffer[0][i] = GifFile->SBackGroundColor;
+        buffer[i] = (GifPixelType) GifFile->SBackGroundColor;
     for (i = 1; i < GifFile->SHeight; i++) {
         /* Allocate the other rows, and set their color to background too: */
-        if ((ScreenBuffer[i] = (GifRowType) malloc(Size)) == NULL) {
+        if ((ScreenBuffer[i] = (GifRowType) malloc(size)) == NULL) {
             LOGI("Failed to allocate memory required, aborted.");
             return -4;
         }
-
-        memcpy(ScreenBuffer[i], ScreenBuffer[0], Size);
+        memcpy(ScreenBuffer[i], ScreenBuffer[0], size);
     }
 //    drawBitmap(env, bitmap, ScreenBuffer);
 //    env->CallVoidMethod(runnable, runMethod);
@@ -153,8 +146,7 @@ static int GIF2RGB(JNIEnv *env, jobject bitmap, jobject runnable) {
                 Col = GifFile->Image.Left;
                 Width = GifFile->Image.Width;
                 Height = GifFile->Image.Height;
-                LOGI("GifFile Image %d at (%d, %d) [%dx%d]", ++ImageNum, GifFile->Image.Left,
-                     GifFile->Image.Width, Width, Height);
+                LOGI("GifFile Image %d at (%d, %d) [%dx%d]", ++ImageNum, Col, Row, Width, Height);
                 if (GifFile->Image.Left + GifFile->Image.Width > GifFile->SWidth ||
                     GifFile->Image.Top + GifFile->Image.Height > GifFile->SHeight) {
                     LOGI("Image %d is not confined to screen dimension, aborted", ImageNum);
@@ -162,7 +154,7 @@ static int GIF2RGB(JNIEnv *env, jobject bitmap, jobject runnable) {
                 }
                 if (GifFile->Image.Interlace) {
                     /* Need to perform 4 passes on the images: */
-                    for (Count = i = 0; i < 4; i++)
+                    for (i = 0; i < 4; i++)
                         for (j = Row + InterlacedOffset[i]; j < Row + Height;
                              j += InterlacedJumps[i]) {
                             if (DGifGetLine(GifFile, &ScreenBuffer[j][Col],
@@ -180,10 +172,10 @@ static int GIF2RGB(JNIEnv *env, jobject bitmap, jobject runnable) {
                         }
                     }
                 }
-                ColorMap = (GifFile->Image.ColorMap
-                            ? GifFile->Image.ColorMap
-                            : GifFile->SColorMap);
-                drawBitmap(env, bitmap, ColorMap, ScreenBuffer);
+                drawBitmap(env, bitmap, GifFile, ScreenBuffer,
+                           GifFile->Image.Left,GifFile->Image.Top,
+                           GifFile->Image.Left + Width, GifFile->Image.Top + Height);
+//                drawBitmap(env, bitmap, GifFile, ScreenBuffer, 0, 0, GifFile->SWidth, GifFile->SHeight);
                 env->CallVoidMethod(runnable, runMethod);
                 break;
             case EXTENSION_RECORD_TYPE:
@@ -200,6 +192,7 @@ static int GIF2RGB(JNIEnv *env, jobject bitmap, jobject runnable) {
                     }
                     GifExtension = Extension + 1;
                     delayTime = UNSIGNED_LITTLE_ENDIAN(GifExtension[1], GifExtension[2]);
+                    transparentColorIndex = (int) GifExtension[3];
                     usleep(delayTime * 10000);
                     LOGI("DelayTime: %d", delayTime);
                 }
