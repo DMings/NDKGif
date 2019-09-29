@@ -32,7 +32,9 @@ drawFrame(GifFileType *gifFileType, GifBean *gifBean, AndroidBitmapInfo bitmapIn
     GifByteType gifByteType;
     GifColorType gifColorType;
     /* The local color map */
-    ColorMapObject *colorMapObject = frameInfo.ColorMap;
+    ColorMapObject *colorMapObject = (frameInfo.ColorMap
+                                      ? frameInfo.ColorMap
+                                      : gifFileType->SColorMap);
 //    LOGI("drawFrame>>>colorMapObject: %p",colorMapObject);
     //Offset to the real color pixel; stride:The number of byte per row;
     px = (int *) ((char *) px + bitmapInfo.stride * frameInfo.Top);

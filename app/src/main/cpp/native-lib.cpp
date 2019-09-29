@@ -6,6 +6,7 @@
 #include "giflib/gif_lib.h"
 #include <unistd.h>
 #include <android/bitmap.h>
+#include "PthreadSleep.h"
 
 #define UNSIGNED_LITTLE_ENDIAN(lo, hi)    ((lo) | ((hi) << 8))
 #define  MAKE_COLOR_ABGR(r, g, b) ((0xff) << 24 ) | ((b) << 16 ) | ((g) << 8 ) | ((r) & 0xff)
@@ -15,6 +16,7 @@
 static int width = 0;
 static int height = 0;
 static GifFileType *GifFile = NULL;
+PthreadSleep pthreadSleep;
 
 static void PrintGifError(int Error) {
     LOGI("PrintGifError: %s", GifErrorString(Error));
@@ -41,7 +43,7 @@ static uint32_t gifColorToColorARGB(const GifColorType &color) {
 
 static void setColorARGB(uint32_t *sPixels, ColorMapObject *colorMap, int transparentColorIndex,
                          GifByteType colorIndex) {
-    if (colorIndex != transparentColorIndex) {
+    if (colorIndex != transparentColorIndex || transparentColorIndex == NO_TRANSPARENT_COLOR) {
         *sPixels = gifColorToColorARGB(colorMap->Colors[colorIndex]);
     }
 }
@@ -59,9 +61,7 @@ drawBitmap(JNIEnv *env, jobject bitmap, SavedImage *SavedImages, ColorMapObject 
     AndroidBitmap_lockPixels(env, bitmap, &pixels);
     uint32_t *sPixels = (uint32_t *) pixels;
     //
-    SavedImages->RasterBits = (unsigned char *) reallocarray(NULL, width * height,
-                                                             sizeof(GifPixelType));
-    int imageIndex = 0;
+    int imageIndex = sizeof(int32_t) * 2;
     //
     for (int h = top; h < height; h++) {
         for (int w = left; w < width; w++) {
@@ -88,12 +88,12 @@ static int GIF2RGB(JNIEnv *env, jobject bitmap, jobject runnable) {
     int InterlacedJumps[] = {8, 8, 4, 2};    /* be read - offsets and jumps... */
     int ImageNum = 0;
     int Error;
-    int delayTime;
     GifByteType *GifExtension;
-    int transparentColorIndex = NO_TRANSPARENT_COLOR;
     ColorMapObject *ColorMap;
     size_t size;
     SavedImage *sp = NULL;
+    int32_t delayTime = 0;
+    int32_t transparentColorIndex = NO_TRANSPARENT_COLOR;
 
     jclass runClass = env->GetObjectClass(runnable);
     jmethodID runMethod = env->GetMethodID(runClass, "run", "()V");
@@ -141,6 +141,17 @@ static int GIF2RGB(JNIEnv *env, jobject bitmap, jobject runnable) {
                     return -6;
                 }
                 sp = &GifFile->SavedImages[GifFile->ImageCount - 1];
+                sp->RasterBits = (unsigned char *) reallocarray(NULL, width * height +
+                                                                      sizeof(int32_t) * 2,
+                                                                sizeof(GifPixelType));
+                int32_t *p2;
+                p2 = (int32_t *) sp->RasterBits;
+                p2[0] = delayTime;
+                p2[1] = transparentColorIndex;
+                delayTime = 0;
+//                transparentColorIndex = NO_TRANSPARENT_COLOR;
+                LOGI(">>>time: %d tColorIndex: %d", p2[0], transparentColorIndex);
+                //
                 Row = GifFile->Image.Top; /* Image Position relative to Screen. */
                 Col = GifFile->Image.Left;
                 Width = GifFile->Image.Width;
@@ -174,6 +185,14 @@ static int GIF2RGB(JNIEnv *env, jobject bitmap, jobject runnable) {
                 ColorMap = (GifFile->Image.ColorMap
                             ? GifFile->Image.ColorMap
                             : GifFile->SColorMap);
+//                ColorMapObject* colorMapObject;
+//                colorMapObject = (ColorMapObject*)malloc(sizeof(ColorMapObject));
+//                colorMapObject->ColorCount = ColorMap->ColorCount;
+//                colorMapObject->BitsPerPixel = ColorMap->BitsPerPixel;
+//                colorMapObject->SortFlag = ColorMap->SortFlag;
+//                colorMapObject->Colors = (struct GifColorType*)malloc(sizeof(GifColorType) * ColorMap->ColorCount);
+//                memcpy(colorMapObject->Colors,ColorMap->Colors,sizeof(GifColorType) * ColorMap->ColorCount);
+//                sp->ImageDesc.ColorMap = colorMapObject;
                 drawBitmap(env, bitmap, sp, ColorMap, ScreenBuffer,
                            GifFile->Image.Left, GifFile->Image.Top,
                            GifFile->Image.Left + Width, GifFile->Image.Top + Height,
@@ -181,7 +200,6 @@ static int GIF2RGB(JNIEnv *env, jobject bitmap, jobject runnable) {
                 env->CallVoidMethod(runnable, runMethod);
                 break;
             case EXTENSION_RECORD_TYPE:
-                LOGI("EXTENSION_RECORD_TYPE");
                 /* Skip any extension blocks in file: */
                 if (DGifGetExtension(GifFile, &ExtCode, &Extension) == GIF_ERROR) {
                     PrintGifError(GifFile->Error);
@@ -194,7 +212,11 @@ static int GIF2RGB(JNIEnv *env, jobject bitmap, jobject runnable) {
                     }
                     GifExtension = Extension + 1;
                     delayTime = UNSIGNED_LITTLE_ENDIAN(GifExtension[1], GifExtension[2]);
-                    transparentColorIndex = (int) GifExtension[3];
+                    if (GifExtension[0] & 0x01)
+                        transparentColorIndex = (int) GifExtension[3];
+                    else
+                        transparentColorIndex = NO_TRANSPARENT_COLOR;
+
                     usleep(delayTime * 10000);
                     LOGI("DelayTime: %d", delayTime);
                 }
@@ -212,55 +234,61 @@ static int GIF2RGB(JNIEnv *env, jobject bitmap, jobject runnable) {
         }
     } while (RecordType != TERMINATE_RECORD_TYPE);
 
-//    /* Lets dump it - set the global variables required and do it: */
-//    ColorMap = (GifFile->Image.ColorMap
-//                ? GifFile->Image.ColorMap
-//                : GifFile->SColorMap);
-//    if (ColorMap == NULL) {
-//        fprintf(stderr, "Gif Image does not have a colormap\n");
-//        return -12;
-//    }
-
     free(ScreenBuffer);
 
     printMsg(env, bitmap, transparentColorIndex);
 
+    LOGI("Wait 1s>>>>>>>>>>>>>>>>>>>>");
+    pthreadSleep.msleep(1 * 1000);
     LOGI("printMsg>>>>>>>>>>>>>>>>>>>>");
 //    ColorMapObject *ColorMap;
-    for (int c = 0; c < 10; ++c) {
+    for (int c = 0; c < 1; ++c) {
         for (int t = 0; t < GifFile->ImageCount; t++) {
             SavedImage frame = GifFile->SavedImages[t];
             GifImageDesc frameInfo = frame.ImageDesc;
             LOGI("GifFile Image %d at (%d, %d) [%dx%d]", t, frameInfo.Left, frameInfo.Top,
                  frameInfo.Width, frameInfo.Height);
-//        frameInfo.ColorMap[];
-            ColorMap = (GifFile->Image.ColorMap
-                        ? GifFile->Image.ColorMap
+            ColorMap = (frameInfo.ColorMap
+                        ? frameInfo.ColorMap
                         : GifFile->SColorMap);
             //
             AndroidBitmapInfo bitmapInfo;
             void *pixels;
             AndroidBitmap_getInfo(env, bitmap, &bitmapInfo);
             AndroidBitmap_lockPixels(env, bitmap, &pixels);
-//        uint32_t *sPixels = (uint32_t *) pixels;
-            //
             uint32_t *sPixels = (uint32_t *) pixels;
-            int pointPixelIdx = 0;
+            //
+            if (t == 0) {
+                for (int h = 0; h < height; h++) {
+                    for (int w = 0; w < (bitmapInfo.stride / 4); w++) {
+                        sPixels[width * h + w] = 0;
+                    }
+                }
+            }
+            //
+            int32_t d_time = 0;
+            int32_t tColorIndex = 0;
+            int32_t *p1;
+            p1 = (int32_t *) frame.RasterBits;
+            d_time = p1[0];
+            tColorIndex = p1[1];
+            LOGI("d_time: %d tColorIndex: %d", d_time, tColorIndex);
+            //
+            int pointPixelIdx = sizeof(int32_t) * 2;
             for (int h = frameInfo.Top; h < frameInfo.Top + frameInfo.Height; h++) {
                 for (int w = frameInfo.Left; w < frameInfo.Left + frameInfo.Width; w++) {
                     setColorARGB(&sPixels[(bitmapInfo.stride / 4) * h + w],
                                  ColorMap,
-                                 transparentColorIndex,
+                                 tColorIndex,
                                  frame.RasterBits[pointPixelIdx++]);
                 }
             }
             //
             AndroidBitmap_unlockPixels(env, bitmap);
             env->CallVoidMethod(runnable, runMethod);
-            usleep(40000);
+            usleep(d_time * 10000);
         }
     }
-
     if (DGifCloseFile(GifFile, &Error) == GIF_ERROR) {
         PrintGifError(Error);
         return -12;

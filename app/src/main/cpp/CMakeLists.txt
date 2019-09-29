@@ -6,6 +6,7 @@ file(GLOB_RECURSE GIF_DIRECTORIES ${CMAKE_SOURCE_DIR}/giflib/*.*)
 add_library(
         native-lib
         SHARED
+        PthreadSleep.cpp
 #        testgif.cpp
         native-lib.cpp
         ${GIF_DIRECTORIES}
