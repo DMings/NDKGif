@@ -7,16 +7,20 @@
 #include <unistd.h>
 #include <android/bitmap.h>
 #include "PthreadSleep.h"
+#include "SyncTime.h"
 
 #define UNSIGNED_LITTLE_ENDIAN(lo, hi)    ((lo) | ((hi) << 8))
 #define  MAKE_COLOR_ABGR(r, g, b) ((0xff) << 24 ) | ((b) << 16 ) | ((g) << 8 ) | ((r) & 0xff)
-//typedef uint32_t ColorARGB;
-#define  argb(a, r, g, b) ( ((a) & 0xff) << 24 ) | ( ((b) & 0xff) << 16 ) | ( ((g) & 0xff) << 8 ) | ((r) & 0xff)
 
 static int width = 0;
 static int height = 0;
 static GifFileType *GifFile = NULL;
-PthreadSleep pthreadSleep;
+static PthreadSleep pthreadSleep;
+static SyncTime syncTime;
+static pthread_mutex_t play_mutex = PTHREAD_MUTEX_INITIALIZER;
+static pthread_cond_t play_cond = PTHREAD_COND_INITIALIZER;
+static bool is_pause = false;
+static bool play_finish = false;
 
 static void PrintGifError(int Error) {
     LOGI("PrintGifError: %s", GifErrorString(Error));
@@ -69,15 +73,14 @@ drawBitmap(JNIEnv *env, jobject bitmap, SavedImage *SavedImages, ColorMapObject 
                          ColorMap,
                          transparentColorIndex,
                          ScreenBuffer[h][w]);
-            SavedImages->RasterBits[imageIndex++] = (GifByteType) ScreenBuffer[h][w];
+            if (SavedImages != NULL) {
+                SavedImages->RasterBits[imageIndex++] = (GifByteType) ScreenBuffer[h][w];
+            }
         }
     }
     AndroidBitmap_unlockPixels(env, bitmap);
 }
 
-static void printMsg(JNIEnv *env, jobject bitmap, int transparentColorIndex) {
-
-}
 
 static int GIF2RGB(JNIEnv *env, jobject bitmap, jobject runnable) {
     int i, j, Row, Col, Width, Height, ExtCode;
@@ -126,9 +129,6 @@ static int GIF2RGB(JNIEnv *env, jobject bitmap, jobject runnable) {
         }
         memcpy(ScreenBuffer[i], ScreenBuffer[0], size);
     }
-//    drawBitmap(env, bitmap, ScreenBuffer);
-//    env->CallVoidMethod(runnable, runMethod);
-    /* Scan the content of the GIF file and load the image(s) in: */
     do {
         if (DGifGetRecordType(GifFile, &RecordType) == GIF_ERROR) {
             PrintGifError(GifFile->Error);
@@ -156,7 +156,9 @@ static int GIF2RGB(JNIEnv *env, jobject bitmap, jobject runnable) {
                 Col = GifFile->Image.Left;
                 Width = GifFile->Image.Width;
                 Height = GifFile->Image.Height;
+
                 LOGI("GifFile Image %d at (%d, %d) [%dx%d]", ++ImageNum, Col, Row, Width, Height);
+
                 if (GifFile->Image.Left + GifFile->Image.Width > GifFile->SWidth ||
                     GifFile->Image.Top + GifFile->Image.Height > GifFile->SHeight) {
                     LOGI("Image %d is not confined to screen dimension, aborted", ImageNum);
@@ -185,14 +187,6 @@ static int GIF2RGB(JNIEnv *env, jobject bitmap, jobject runnable) {
                 ColorMap = (GifFile->Image.ColorMap
                             ? GifFile->Image.ColorMap
                             : GifFile->SColorMap);
-//                ColorMapObject* colorMapObject;
-//                colorMapObject = (ColorMapObject*)malloc(sizeof(ColorMapObject));
-//                colorMapObject->ColorCount = ColorMap->ColorCount;
-//                colorMapObject->BitsPerPixel = ColorMap->BitsPerPixel;
-//                colorMapObject->SortFlag = ColorMap->SortFlag;
-//                colorMapObject->Colors = (struct GifColorType*)malloc(sizeof(GifColorType) * ColorMap->ColorCount);
-//                memcpy(colorMapObject->Colors,ColorMap->Colors,sizeof(GifColorType) * ColorMap->ColorCount);
-//                sp->ImageDesc.ColorMap = colorMapObject;
                 drawBitmap(env, bitmap, sp, ColorMap, ScreenBuffer,
                            GifFile->Image.Left, GifFile->Image.Top,
                            GifFile->Image.Left + Width, GifFile->Image.Top + Height,
@@ -217,8 +211,18 @@ static int GIF2RGB(JNIEnv *env, jobject bitmap, jobject runnable) {
                     else
                         transparentColorIndex = NO_TRANSPARENT_COLOR;
 
-                    usleep(delayTime * 10000);
-                    LOGI("DelayTime: %d", delayTime);
+                    pthread_mutex_lock(&play_mutex);
+                    if (is_pause) {
+                        is_pause = false;
+                        pthread_cond_wait(&play_cond, &play_mutex);
+                        syncTime.reset_clock();
+                    }
+                    pthread_mutex_unlock(&play_mutex);
+
+                    unsigned int dt = 0;
+                    dt = syncTime.synchronize_time(delayTime * 10);
+                    pthreadSleep.msleep(dt);
+                    syncTime.set_clock();
                 }
                 while (Extension != NULL) {
                     if (DGifGetExtensionNext(GifFile, &Extension) == GIF_ERROR) {
@@ -232,17 +236,13 @@ static int GIF2RGB(JNIEnv *env, jobject bitmap, jobject runnable) {
             default:            /* Should be trapped by DGifGetRecordType. */
                 break;
         }
-    } while (RecordType != TERMINATE_RECORD_TYPE);
+    } while (RecordType != TERMINATE_RECORD_TYPE && !play_finish);
 
     free(ScreenBuffer);
 
-    printMsg(env, bitmap, transparentColorIndex);
-
-    LOGI("Wait 1s>>>>>>>>>>>>>>>>>>>>");
-    pthreadSleep.msleep(1 * 1000);
-    LOGI("printMsg>>>>>>>>>>>>>>>>>>>>");
+    syncTime.reset_clock();
 //    ColorMapObject *ColorMap;
-    for (int c = 0; c < 1; ++c) {
+    while (!play_finish) {
         for (int t = 0; t < GifFile->ImageCount; t++) {
             SavedImage frame = GifFile->SavedImages[t];
             GifImageDesc frameInfo = frame.ImageDesc;
@@ -258,14 +258,6 @@ static int GIF2RGB(JNIEnv *env, jobject bitmap, jobject runnable) {
             AndroidBitmap_lockPixels(env, bitmap, &pixels);
             uint32_t *sPixels = (uint32_t *) pixels;
             //
-            if (t == 0) {
-                for (int h = 0; h < height; h++) {
-                    for (int w = 0; w < (bitmapInfo.stride / 4); w++) {
-                        sPixels[width * h + w] = 0;
-                    }
-                }
-            }
-            //
             int32_t d_time = 0;
             int32_t tColorIndex = 0;
             int32_t *p1;
@@ -273,6 +265,19 @@ static int GIF2RGB(JNIEnv *env, jobject bitmap, jobject runnable) {
             d_time = p1[0];
             tColorIndex = p1[1];
             LOGI("d_time: %d tColorIndex: %d", d_time, tColorIndex);
+            //
+            pthread_mutex_lock(&play_mutex);
+            if (is_pause) {
+                is_pause = false;
+                pthread_cond_wait(&play_cond, &play_mutex);
+                syncTime.reset_clock();
+            }
+            pthread_mutex_unlock(&play_mutex);
+            //
+            unsigned int dt = 0;
+            dt = syncTime.synchronize_time(d_time * 10);
+            pthreadSleep.msleep(dt);
+            syncTime.set_clock();
             //
             int pointPixelIdx = sizeof(int32_t) * 2;
             for (int h = frameInfo.Top; h < frameInfo.Top + frameInfo.Height; h++) {
@@ -286,7 +291,6 @@ static int GIF2RGB(JNIEnv *env, jobject bitmap, jobject runnable) {
             //
             AndroidBitmap_unlockPixels(env, bitmap);
             env->CallVoidMethod(runnable, runMethod);
-            usleep(d_time * 10000);
         }
     }
     if (DGifCloseFile(GifFile, &Error) == GIF_ERROR) {
@@ -296,9 +300,8 @@ static int GIF2RGB(JNIEnv *env, jobject bitmap, jobject runnable) {
     return 0;
 }
 
-extern "C"
-JNIEXPORT jboolean JNICALL
-Java_com_dming_testgif_TestGif_loadGif(JNIEnv *env, jobject instance, jstring gifPath_) {
+
+JNIEXPORT jboolean JNICALL load_gif_jni(JNIEnv *env, jclass type, jstring gifPath_) {
     const char *gifPath = env->GetStringUTFChars(gifPath_, 0);
 
     int ret = loadGifInfo(gifPath);
@@ -308,21 +311,84 @@ Java_com_dming_testgif_TestGif_loadGif(JNIEnv *env, jobject instance, jstring gi
     return (jboolean) (ret == 0 ? JNI_TRUE : JNI_FALSE);
 }
 
-extern "C"
-JNIEXPORT jint JNICALL
-Java_com_dming_testgif_TestGif_getWidth(JNIEnv *env, jobject instance) {
+JNIEXPORT void JNICALL start_jni(JNIEnv *env, jclass type, jobject bitmap,
+                                 jobject runnable) {
+    pthread_mutex_lock(&play_mutex);
+    play_finish = false;
+    pthread_mutex_unlock(&play_mutex);
+    GIF2RGB(env, bitmap, runnable);
+}
+
+JNIEXPORT void JNICALL pause_jni(JNIEnv *env, jclass type) {
+    pthread_mutex_lock(&play_mutex);
+    is_pause = true;
+    pthread_mutex_unlock(&play_mutex);
+}
+
+JNIEXPORT void JNICALL resume_jni(JNIEnv *env, jclass type) {
+    pthread_mutex_lock(&play_mutex);
+    is_pause = false;
+    pthread_cond_signal(&play_cond);
+    pthread_mutex_unlock(&play_mutex);
+}
+
+JNIEXPORT jint JNICALL get_width_jni(JNIEnv *env, jclass typee) {
     return width;
 }
 
-extern "C"
-JNIEXPORT jint JNICALL
-Java_com_dming_testgif_TestGif_getHeight(JNIEnv *env, jobject instance) {
+JNIEXPORT jint JNICALL get_height_jni(JNIEnv *env, jclass type) {
     return height;
 }
 
-extern "C"
-JNIEXPORT void JNICALL
-Java_com_dming_testgif_TestGif_testGif(JNIEnv *env, jobject instance, jobject bitmap,
-                                       jobject runnable) {
-    GIF2RGB(env, bitmap, runnable);
+JNIEXPORT void JNICALL release_jni(JNIEnv *env, jclass type) {
+    pthread_mutex_lock(&play_mutex);
+    play_finish = true;
+    is_pause = false;
+    pthread_cond_signal(&play_cond);
+    pthread_mutex_unlock(&play_mutex);
+    pthreadSleep.interrupt();
+}
+
+JNINativeMethod method[] = {{"load_gif",   "(Ljava/lang/String;)Z",                            (void *) load_gif_jni},
+                            {"start",      "(Landroid/graphics/Bitmap;Ljava/lang/Runnable;)V", (void *) start_jni},
+                            {"pause",      "()V",                                              (void *) pause_jni},
+                            {"resume",     "()V",                                              (void *) resume_jni},
+                            {"get_width",  "()I",                                              (void *) get_width_jni},
+                            {"get_height", "()I",                                              (void *) get_height_jni},
+                            {"release",    "()V",                                              (void *) release_jni},
+};
+
+jint registerNativeMethod(JNIEnv *env) {
+    jclass cl = env->FindClass("com/dming/testgif/GifPlayer");
+    if ((env->RegisterNatives(cl, method, sizeof(method) / sizeof(method[0]))) < 0) {
+        return -1;
+    }
+    return 0;
+}
+
+jint unRegisterNativeMethod(JNIEnv *env) {
+    jclass cl = env->FindClass("com/dming/testgif/GifPlayer");
+    env->UnregisterNatives(cl);
+    return 0;
+}
+
+JNIEXPORT jint JNI_OnLoad(JavaVM *vm, void *reserved) {
+    JNIEnv *env;
+    if (vm->GetEnv((void **) &env, JNI_VERSION_1_6) == JNI_OK) {
+        registerNativeMethod(env);
+        return JNI_VERSION_1_6;
+    } else if (vm->GetEnv((void **) &env, JNI_VERSION_1_4) == JNI_OK) {
+        registerNativeMethod(env);
+        return JNI_VERSION_1_4;
+    }
+    return JNI_ERR;
+}
+
+JNIEXPORT void JNI_OnUnload(JavaVM *vm, void *reserved) {
+    JNIEnv *env;
+    if (vm->GetEnv((void **) &env, JNI_VERSION_1_6) == JNI_OK) {
+        unRegisterNativeMethod(env);
+    } else if (vm->GetEnv((void **) &env, JNI_VERSION_1_4) == JNI_OK) {
+        unRegisterNativeMethod(env);
+    }
 }

@@ -4,11 +4,11 @@ cmake_minimum_required(VERSION 3.4.1)
 file(GLOB_RECURSE GIF_DIRECTORIES ${CMAKE_SOURCE_DIR}/giflib/*.*)
 
 add_library(
-        native-lib
+        gifplayer
         SHARED
         PthreadSleep.cpp
-#        testgif.cpp
-        native-lib.cpp
+        SyncTime.cpp
+        GifPlayer.cpp
         ${GIF_DIRECTORIES}
 #        giflib/dgif_lib.c
 #        giflib/egif_lib.c
@@ -21,7 +21,7 @@ add_library(
 
 
 target_link_libraries(
-        native-lib
+        gifplayer
         jnigraphics
         log
         android)

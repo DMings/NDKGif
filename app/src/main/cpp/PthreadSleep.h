@@ -18,6 +18,8 @@ public:
 
     void msleep(unsigned int ms);
 
+    void interrupt();
+
 private:
     static pthread_mutex_t sleep_mutex;
     static pthread_cond_t sleep_cond;

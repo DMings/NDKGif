@@ -6,7 +6,6 @@ import android.os.Build;
 import android.os.Bundle;
 import android.os.Environment;
 import android.support.v7.app.AppCompatActivity;
-import android.util.Log;
 import android.view.View;
 import android.widget.ImageView;
 import android.widget.Toast;
@@ -15,10 +14,8 @@ import java.io.File;
 
 public class MainActivity extends AppCompatActivity {
 
-    //    private GifHandler mGifHandler;
     private ImageView mIvShow;
-    private Bitmap mBitmap;
-    private TestGif mTestGif;
+    private GifPlayer mGifPlayer;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -28,52 +25,64 @@ public class MainActivity extends AppCompatActivity {
             requestPermissions(new String[]{Manifest.permission.WRITE_EXTERNAL_STORAGE, Manifest.permission.READ_EXTERNAL_STORAGE}, 666);
         }
         mIvShow = findViewById(R.id.iv_show);
-        mTestGif = new TestGif();
+        mGifPlayer = new GifPlayer();
+        mGifPlayer.setUpdateBitmap(new UpdateBitmap() {
+            @Override
+            public void draw(final Bitmap bitmap) {
+                runOnUiThread(new Runnable() {
+                    @Override
+                    public void run() {
+                        mIvShow.setImageBitmap(bitmap);
+                    }
+                });
+            }
+        });
         findViewById(R.id.btn_one).setOnClickListener(new View.OnClickListener() {
             @Override
             public void onClick(View v) {
-                File file = new File(Environment.getExternalStorageDirectory(), "1/test.gif");
+                File file = new File(Environment.getExternalStorageDirectory(), "1/demo.gif");
                 if (file.exists()) {
-                    if (mTestGif.loadGif(file.getPath())) {
-                        mBitmap = Bitmap.createBitmap(mTestGif.getWidth(), mTestGif.getHeight(), Bitmap.Config.ARGB_8888);
-                        testGif();
-                    }
+                    mGifPlayer.play(file.getPath());
                 } else {
                     Toast.makeText(MainActivity.this, "file not exists!!!", Toast.LENGTH_SHORT).show();
                 }
             }
         });
-//        findViewById(R.id.btn_two).setOnClickListener(new View.OnClickListener() {
-//            @Override
-//            public void onClick(View v) {
-//                File file = new File(Environment.getExternalStorageDirectory(), "1/demo.gif");
-//                if (file.exists()) {
-//                    testGif();
-//                } else {
-//                    Toast.makeText(MainActivity.this, "file not exists!!!", Toast.LENGTH_SHORT).show();
-//                }
-//            }
-//        });
-    }
-
-    public void testGif() {
-        new Thread(new Runnable() {
+        findViewById(R.id.btn_two).setOnClickListener(new View.OnClickListener() {
             @Override
-            public void run() {
-                mTestGif.testGif(mBitmap, new Runnable() {
-                    @Override
-                    public void run() {
-                        runOnUiThread(new Runnable() {
-                            @Override
-                            public void run() {
-                                Log.i("DMUI", "testGif>>> run");
-                                mIvShow.setImageBitmap(mBitmap);
-                            }
-                        });
-                    }
-                });
+            public void onClick(View v) {
+                mGifPlayer.onPause();
             }
-        }).start();
+        });
+        findViewById(R.id.btn_three).setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                mGifPlayer.onResume();
+            }
+        });
+        findViewById(R.id.btn_four).setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                mGifPlayer.onDestroy();
+            }
+        });
     }
 
+    @Override
+    protected void onResume() {
+        super.onResume();
+        mGifPlayer.onResume();
+    }
+
+    @Override
+    protected void onPause() {
+        mGifPlayer.onPause();
+        super.onPause();
+    }
+
+    @Override
+    protected void onDestroy() {
+        mGifPlayer.onDestroy();
+        super.onDestroy();
+    }
 }
