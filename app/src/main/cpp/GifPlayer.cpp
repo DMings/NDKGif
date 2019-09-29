@@ -8,6 +8,10 @@
 #include <android/bitmap.h>
 #include "PthreadSleep.h"
 #include "SyncTime.h"
+#include <android/asset_manager.h>
+#include <android/asset_manager_jni.h>
+
+#include <fcntl.h>
 
 #define UNSIGNED_LITTLE_ENDIAN(lo, hi)    ((lo) | ((hi) << 8))
 #define  MAKE_COLOR_ABGR(r, g, b) ((0xff) << 24 ) | ((b) << 16 ) | ((g) << 8 ) | ((r) & 0xff)
@@ -26,15 +30,34 @@ static void PrintGifError(int Error) {
     LOGI("PrintGifError: %s", GifErrorString(Error));
 }
 
+static int fileRead(GifFileType *gif, GifByteType *bytes, int size) {
+    FILE *file = (FILE *) gif->UserData;
+    LOGI("fileRead file: %p",file);
+    return (int) fread(bytes, 1, size, file);
+}
+
 static int loadGifInfo(const char *FileName) {
     int Error;
     GifFile = NULL;
     width = 0;
     height = 0;
-    if ((GifFile = DGifOpenFileName(FileName, &Error)) == NULL) {
-        PrintGifError(Error);
-        return -1;
+
+    int FileHandle;
+    GifFileType *GifFile;
+    if ((FileHandle = open(FileName, O_RDONLY)) == -1) {
+        return -12;
     }
+    LOGI("FileHandle: %d",FileHandle);
+    FILE *f = fdopen(FileHandle, "rb");
+    LOGI("fdopen f: %p",f);
+    if ((GifFile = DGifOpen(f, fileRead, &Error)) == NULL) {
+        PrintGifError(Error);
+        return -11;
+    }
+//    if ((GifFile = DGifOpenFileName(FileName, &Error)) == NULL) {
+//        PrintGifError(Error);
+//        return -1;
+//    }
     width = GifFile->SWidth;
     height = GifFile->SHeight;
     LOGI("gif SWidth: %d SHeight: %d", GifFile->SWidth, GifFile->SHeight);
@@ -296,6 +319,10 @@ static int GIF2RGB(JNIEnv *env, jobject bitmap, jobject runnable) {
     if (DGifCloseFile(GifFile, &Error) == GIF_ERROR) {
         PrintGifError(Error);
         return -12;
+    }
+    if (GifFile->UserData) {
+        FILE *file = (FILE *) GifFile->UserData;
+        fclose(file);
     }
     return 0;
 }

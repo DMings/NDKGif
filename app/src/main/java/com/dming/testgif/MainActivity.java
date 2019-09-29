@@ -40,7 +40,7 @@ public class MainActivity extends AppCompatActivity {
         findViewById(R.id.btn_one).setOnClickListener(new View.OnClickListener() {
             @Override
             public void onClick(View v) {
-                File file = new File(Environment.getExternalStorageDirectory(), "1/demo.gif");
+                File file = new File(Environment.getExternalStorageDirectory(), "1/test.gif");
                 if (file.exists()) {
                     mGifPlayer.play(file.getPath());
                 } else {
@@ -63,7 +63,7 @@ public class MainActivity extends AppCompatActivity {
         findViewById(R.id.btn_four).setOnClickListener(new View.OnClickListener() {
             @Override
             public void onClick(View v) {
-                mGifPlayer.onDestroy();
+                mGifPlayer.stop();
             }
         });
     }

@@ -1,18 +1,28 @@
 package com.dming.testgif;
 
 import android.graphics.Bitmap;
+import android.os.Handler;
+import android.os.HandlerThread;
 
 public class GifPlayer {
 
     private Bitmap mBitmap;
     private UpdateBitmap mUpdateBitmap;
+    private HandlerThread mHandlerThread;
+    private Handler mHandler;
+
+    public GifPlayer() {
+        mHandlerThread = new HandlerThread("GifPlayer");
+        mHandlerThread.start();
+        mHandler = new Handler(mHandlerThread.getLooper());
+    }
 
     public void setUpdateBitmap(UpdateBitmap updateBitmap) {
         this.mUpdateBitmap = updateBitmap;
     }
 
     public void play(final String gifPath) {
-        new Thread(new Runnable() {
+        mHandler.post(new Runnable() {
             @Override
             public void run() {
                 if (load_gif(gifPath)) {
@@ -27,7 +37,7 @@ public class GifPlayer {
                     });
                 }
             }
-        }).start();
+        });
     }
 
     public void onPause() {
@@ -38,8 +48,17 @@ public class GifPlayer {
         resume();
     }
 
+    public void stop() {
+        release();
+    }
+
     public void onDestroy() {
         release();
+        try {
+            mHandlerThread.join();
+        } catch (InterruptedException e) {
+//            e.printStackTrace();
+        }
     }
 
     static {
