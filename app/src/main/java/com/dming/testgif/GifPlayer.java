@@ -30,13 +30,21 @@ public class GifPlayer {
 
     }
 
-    public boolean play(final Context context, final String gifPath) {
+    public boolean assetPlay(Context context, String gifPath) {
+        return play(context, gifPath);
+    }
+
+    public boolean storagePlay(String gifPath) {
+        return play(null, gifPath);
+    }
+
+    private boolean play(final Context context, final String gifPath) {
         if (mPlayState == PlayState.IDLE) {
             mPlayState = PlayState.PLAY;
             mHandler.post(new Runnable() {
                 @Override
                 public void run() {
-                    if (native_load_gif(context.getResources().getAssets(), gifPath)) {
+                    if (native_load_gif(context != null ? context.getResources().getAssets() : null, gifPath)) {
                         mPlayState = PlayState.PLAYING;
                         mBitmap = Bitmap.createBitmap(native_get_width(), native_get_height(), Bitmap.Config.ARGB_8888);
                         native_start(mBitmap, new Runnable() {

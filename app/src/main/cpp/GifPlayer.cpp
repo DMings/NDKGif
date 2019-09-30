@@ -48,8 +48,6 @@ static void getPlayState(PlayState *playState) {
 static int fileRead(GifFileType *gif, GifByteType *buf, int size) {
     AAsset *asset = (AAsset *) gif->UserData;
     return AAsset_read(asset, buf, (size_t) size);
-//    FILE *file = (FILE *) gif->UserData;
-//    return (int) fread(buf, 1, size, file);
 }
 
 static int loadGifInfo(JNIEnv *env, jobject assetManager, const char *filename) {
@@ -63,23 +61,20 @@ static int loadGifInfo(JNIEnv *env, jobject assetManager, const char *filename) 
         gifFile = NULL;
     }
     setPlayState(PREPARE);
-    AAssetManager *mgr = AAssetManager_fromJava(env, assetManager);
-    AAsset *asset = AAssetManager_open(mgr, filename, AASSET_MODE_STREAMING);
-    if ((gifFile = DGifOpen(asset, fileRead, &Error)) == NULL) {
-        setPlayState(IDLE);
-        PrintGifError(Error);
-        return -1;
+    if (assetManager) {
+        AAssetManager *mgr = AAssetManager_fromJava(env, assetManager);
+        AAsset *asset = AAssetManager_open(mgr, filename, AASSET_MODE_STREAMING);
+        if ((gifFile = DGifOpen(asset, fileRead, &Error)) == NULL) {
+            setPlayState(IDLE);
+            PrintGifError(Error);
+            return -1;
+        }
+    } else {
+        if ((gifFile = DGifOpenFileName(filename, &Error)) == NULL) { // 用外部路径用这里
+            PrintGifError(Error);
+            return -1;
+        }
     }
-//    FILE *f = fopen(filename, "rb");
-//    LOGI("fdopen f: %p", f);
-//    if ((gifFile = DGifOpen(f, fileRead, &Error)) == NULL) {
-//        PrintGifError(Error);
-//        return -1;
-//    }
-//    if ((gifFile = DGifOpenFileName(FileName, &Error)) == NULL) {
-//        PrintGifError(Error);
-//        return -1;
-//    }
     gif_width = gifFile->SWidth;
     gif_height = gifFile->SHeight;
     LOGI("gif SWidth: %d SHeight: %d", gifFile->SWidth, gifFile->SHeight);
@@ -289,6 +284,9 @@ static void playGif(JNIEnv *env, jobject bitmap, jobject runnable) {
     syncTime.reset_clock();
     while (!is_play_quit) {
         for (int t = 0; t < gifFile->ImageCount; t++) {
+            if(is_play_quit){
+                break;
+            }
             SavedImage frame = gifFile->SavedImages[t];
             GifImageDesc frameInfo = frame.ImageDesc;
 //            LOGI("gifFile Image %d at (%d, %d) [%dx%d]", t, frameInfo.Left, frameInfo.Top,
