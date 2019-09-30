@@ -9,7 +9,7 @@ import android.os.HandlerThread;
 public class GifPlayer {
 
     public enum PlayState {
-        IDLE, PLAY, PLAYING, STOP
+        IDLE, PLAY, PLAYING
     }
 
     private Bitmap mBitmap;
@@ -17,8 +17,10 @@ public class GifPlayer {
     private HandlerThread mHandlerThread;
     private Handler mHandler;
     private PlayState mPlayState;
+    private long mGifPlayerPtr = 0;
 
     public GifPlayer() {
+        mGifPlayerPtr = native_create();
         mPlayState = PlayState.IDLE;
         mHandlerThread = new HandlerThread("GifPlayer");
         mHandlerThread.start();
@@ -27,27 +29,34 @@ public class GifPlayer {
 
     public void setUpdateBitmap(UpdateBitmap updateBitmap) {
         this.mUpdateBitmap = updateBitmap;
-
     }
 
     public boolean assetPlay(Context context, String gifPath) {
-        return play(context, gifPath);
+        return play(false, context, gifPath);
     }
 
     public boolean storagePlay(String gifPath) {
-        return play(null, gifPath);
+        return play(false, null, gifPath);
     }
 
-    private boolean play(final Context context, final String gifPath) {
+    public boolean assetPlay(boolean once, Context context, String gifPath) {
+        return play(once, context, gifPath);
+    }
+
+    public boolean storagePlay(boolean once, String gifPath) {
+        return play(once, null, gifPath);
+    }
+
+    private boolean play(final boolean once, final Context context, final String gifPath) {
         if (mPlayState == PlayState.IDLE) {
             mPlayState = PlayState.PLAY;
             mHandler.post(new Runnable() {
                 @Override
                 public void run() {
-                    if (native_load_gif(context != null ? context.getResources().getAssets() : null, gifPath)) {
+                    if (native_load(mGifPlayerPtr, context != null ? context.getResources().getAssets() : null, gifPath)) {
                         mPlayState = PlayState.PLAYING;
-                        mBitmap = Bitmap.createBitmap(native_get_width(), native_get_height(), Bitmap.Config.ARGB_8888);
-                        native_start(mBitmap, new Runnable() {
+                        mBitmap = Bitmap.createBitmap(native_get_width(mGifPlayerPtr), native_get_height(mGifPlayerPtr), Bitmap.Config.ARGB_8888);
+                        native_start(mGifPlayerPtr, once, mBitmap, new Runnable() {
                             @Override
                             public void run() {
                                 if (mUpdateBitmap != null) {
@@ -56,6 +65,7 @@ public class GifPlayer {
                             }
                         });
                     }
+                    mPlayState = PlayState.IDLE;
                 }
             });
         } else {
@@ -66,7 +76,7 @@ public class GifPlayer {
 
     public boolean pause() {
         if (mPlayState == PlayState.PLAYING) {
-            native_pause();
+            native_pause(mGifPlayerPtr);
             return true;
         }
         return false;
@@ -74,30 +84,22 @@ public class GifPlayer {
 
     public boolean resume() {
         if (mPlayState == PlayState.PLAYING) {
-            native_resume();
+            native_resume(mGifPlayerPtr);
             return true;
         }
         return false;
     }
 
     public boolean stop() {
-        if (mPlayState != PlayState.IDLE &&
-                mPlayState != PlayState.STOP) {
-            mPlayState = PlayState.STOP;
-            native_release();
-            mHandler.post(new Runnable() {
-                @Override
-                public void run() {
-                    mPlayState = PlayState.IDLE;
-                }
-            });
+        if (mPlayState != PlayState.IDLE) {
+            native_stop(mGifPlayerPtr);
             return true;
         }
         return false;
     }
 
     public void destroy() {
-        native_release();
+        native_release(mGifPlayerPtr);
         mHandlerThread.quit();
         try {
             mHandlerThread.join();
@@ -105,24 +107,29 @@ public class GifPlayer {
 //            e.printStackTrace();
         }
         mBitmap = null;
+        mGifPlayerPtr = 0;
     }
 
     static {
         System.loadLibrary("gifplayer");
     }
 
-    private static native boolean native_load_gif(AssetManager assetManager, String gifPath);
+    private native long native_create();
 
-    private static native void native_start(Bitmap bitmap, Runnable updateBitmap);
+    private native boolean native_load(long ptr, AssetManager assetManager, String gifPath);
 
-    private static native int native_get_width();
+    private native void native_start(long ptr, boolean once, Bitmap bitmap, Runnable updateBitmap);
 
-    private static native int native_get_height();
+    private native int native_get_width(long ptr);
 
-    private static native void native_pause();
+    private native int native_get_height(long ptr);
 
-    private static native void native_resume();
+    private native void native_pause(long ptr);
 
-    private static native void native_release();
+    private native void native_resume(long ptr);
+
+    private native void native_stop(long ptr);
+
+    private native void native_release(long ptr);
 
 }

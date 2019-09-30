@@ -4,9 +4,13 @@ import android.Manifest;
 import android.graphics.Bitmap;
 import android.os.Build;
 import android.os.Bundle;
+import android.os.Environment;
 import android.support.v7.app.AppCompatActivity;
 import android.view.View;
 import android.widget.ImageView;
+import android.widget.Toast;
+
+import java.io.File;
 
 public class MainActivity extends AppCompatActivity {
 
@@ -36,11 +40,11 @@ public class MainActivity extends AppCompatActivity {
         findViewById(R.id.btn_one).setOnClickListener(new View.OnClickListener() {
             @Override
             public void onClick(View v) {
-                mGifPlayer.assetPlay(MainActivity.this, "test.gif");
+                mGifPlayer.assetPlay(false,MainActivity.this, "test.gif");
                 /// 外部目录play
 //                File file = new File(Environment.getExternalStorageDirectory(), "1/demo.gif");
 //                if (file.exists()) {
-//                    mGifPlayer.storagePlay(file.getPath());
+//                    mGifPlayer.storagePlay(false,file.getPath());
 //                } else {
 //                    Toast.makeText(MainActivity.this, "file not exists!!!", Toast.LENGTH_SHORT).show();
 //                }

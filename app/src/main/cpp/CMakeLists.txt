@@ -9,6 +9,7 @@ add_library(
         PthreadSleep.cpp
         SyncTime.cpp
         GifPlayer.cpp
+        GifJni.cpp
         ${GIF_DIRECTORIES}
 #        giflib/dgif_lib.c
 #        giflib/egif_lib.c
