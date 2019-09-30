@@ -101,13 +101,14 @@ public class GifPlayer {
     public void destroy() {
         native_release(mGifPlayerPtr);
         mHandlerThread.quit();
-        try {
-            mHandlerThread.join();
-        } catch (InterruptedException e) {
-//            e.printStackTrace();
-        }
+//        try {
+//            mHandlerThread.join();
+//        } catch (InterruptedException e) {
+////            e.printStackTrace();
+//        }
         mBitmap = null;
         mGifPlayerPtr = 0;
+        mHandler = null;
     }
 
     static {

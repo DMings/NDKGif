@@ -321,6 +321,8 @@ void GifPlayer::playGif(JNIEnv *env, bool once, jobject bitmap, jobject runnable
             threadSleep.msleep(dt);
             syncTime.set_clock();
             //
+            LOGI("synchronize_time");
+            //
             int pointPixelIdx = sizeof(int32_t) * DATA_OFFSET;
             int dH = bitmapWidth * frameInfo.Top;
             for (int h = frameInfo.Top; h < frameInfo.Top + frameInfo.Height; h++) {

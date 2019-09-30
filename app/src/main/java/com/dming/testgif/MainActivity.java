@@ -1,16 +1,14 @@
 package com.dming.testgif;
 
 import android.Manifest;
+import android.content.res.AssetManager;
 import android.graphics.Bitmap;
 import android.os.Build;
 import android.os.Bundle;
-import android.os.Environment;
 import android.support.v7.app.AppCompatActivity;
+import android.util.Log;
 import android.view.View;
 import android.widget.ImageView;
-import android.widget.Toast;
-
-import java.io.File;
 
 public class MainActivity extends AppCompatActivity {
 
@@ -40,9 +38,9 @@ public class MainActivity extends AppCompatActivity {
         findViewById(R.id.btn_one).setOnClickListener(new View.OnClickListener() {
             @Override
             public void onClick(View v) {
-                mGifPlayer.assetPlay(false,MainActivity.this, "test.gif");
-                /// 外部目录play
-//                File file = new File(Environment.getExternalStorageDirectory(), "1/demo.gif");
+                mGifPlayer.assetPlay(false,MainActivity.this, "mogutou.gif");
+                // 外部目录play
+//                File file = new File(Environment.getExternalStorageDirectory(), "1/test.gif");
 //                if (file.exists()) {
 //                    mGifPlayer.storagePlay(false,file.getPath());
 //                } else {

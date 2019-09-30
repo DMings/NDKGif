@@ -12,51 +12,75 @@ create_jni(JNIEnv *env, jobject instance) {
 }
 
 JNIEXPORT jboolean JNICALL
-load_jni(JNIEnv *env, jobject instance, long gifPlayerFormJava,
+load_jni(JNIEnv *env, jobject instance, jlong gifPlayerFormJava,
          jobject assetManager, jstring gifPath_) {
     const char *gifPath = env->GetStringUTFChars(gifPath_, 0);
     GifPlayer *gifPlayer = (GifPlayer *) gifPlayerFormJava;
-    jboolean ret = gifPlayer->load_gif(env, assetManager, gifPath);
+    jboolean ret;
+    if (gifPlayer) {
+        ret = gifPlayer->load_gif(env, assetManager, gifPath);
+    } else {
+        ret = JNI_FALSE;
+    }
     env->ReleaseStringUTFChars(gifPath_, gifPath);
     return ret;
 }
 
 JNIEXPORT void JNICALL
-start_jni(JNIEnv *env, jobject instance, long gifPlayerFormJava, jboolean once, jobject bitmap,
+start_jni(JNIEnv *env, jobject instance, jlong gifPlayerFormJava, jboolean once, jobject bitmap,
           jobject runnable) {
     GifPlayer *gifPlayer = (GifPlayer *) gifPlayerFormJava;
-    gifPlayer->start(env, once, bitmap, runnable);
+    if (gifPlayer) {
+        gifPlayer->start(env, once, bitmap, runnable);
+    }
 }
 
-JNIEXPORT void JNICALL pause_jni(JNIEnv *env, jobject instance, long gifPlayerFormJava) {
+JNIEXPORT void JNICALL pause_jni(JNIEnv *env, jobject instance, jlong gifPlayerFormJava) {
     GifPlayer *gifPlayer = (GifPlayer *) gifPlayerFormJava;
-    gifPlayer->pause();
+    if (gifPlayer) {
+        gifPlayer->pause();
+    }
 }
 
-JNIEXPORT void JNICALL resume_jni(JNIEnv *env, jobject instance, long gifPlayerFormJava) {
+JNIEXPORT void JNICALL resume_jni(JNIEnv *env, jobject instance, jlong gifPlayerFormJava) {
     GifPlayer *gifPlayer = (GifPlayer *) gifPlayerFormJava;
-    gifPlayer->resume();
+    if (gifPlayer) {
+        gifPlayer->resume();
+    }
 }
 
-JNIEXPORT jint JNICALL get_width_jni(JNIEnv *env, jobject instance, long gifPlayerFormJava) {
+JNIEXPORT jint JNICALL get_width_jni(JNIEnv *env, jobject instance, jlong gifPlayerFormJava) {
     GifPlayer *gifPlayer = (GifPlayer *) gifPlayerFormJava;
-    return gifPlayer->get_width();
+    if (gifPlayer) {
+        return gifPlayer->get_width();
+    } else {
+        return 0;
+    }
 }
 
-JNIEXPORT jint JNICALL get_height_jni(JNIEnv *env, jobject instance, long gifPlayerFormJava) {
+JNIEXPORT jint JNICALL get_height_jni(JNIEnv *env, jobject instance, jlong gifPlayerFormJava) {
     GifPlayer *gifPlayer = (GifPlayer *) gifPlayerFormJava;
-    return gifPlayer->get_height();
+    if (gifPlayer) {
+        return gifPlayer->get_height();
+    } else {
+        return 0;
+    }
 }
 
-JNIEXPORT void JNICALL stop_jni(JNIEnv *env, jobject instance, long gifPlayerFormJava) {
+JNIEXPORT void JNICALL stop_jni(JNIEnv *env, jobject instance, jlong gifPlayerFormJava) {
     GifPlayer *gifPlayer = (GifPlayer *) gifPlayerFormJava;
-    gifPlayer->release();
+    if (gifPlayer) {
+        gifPlayer->release();
+    }
 }
 
-JNIEXPORT void JNICALL release_jni(JNIEnv *env, jobject instance, long gifPlayerFormJava) {
+JNIEXPORT void JNICALL release_jni(JNIEnv *env, jobject instance, jlong gifPlayerFormJava) {
     GifPlayer *gifPlayer = (GifPlayer *) gifPlayerFormJava;
-    gifPlayer->release();
-    delete (gifPlayer);
+    if (gifPlayer) {
+        gifPlayer->release();
+        delete (gifPlayer);
+        gifPlayer = NULL;
+    }
 }
 
 JNINativeMethod method[] = {
