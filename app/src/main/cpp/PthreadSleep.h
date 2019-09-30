@@ -14,17 +14,18 @@ class PthreadSleep {
 public:
     PthreadSleep();
 
-    PthreadSleep(pthread_mutex_t* mutex, pthread_cond_t* cond);
+    ~PthreadSleep();
 
     void msleep(unsigned int ms);
+
+    void reset();
 
     void interrupt();
 
 private:
-    static pthread_mutex_t sleep_mutex;
-    static pthread_cond_t sleep_cond;
-    pthread_mutex_t* mutex;
-    pthread_cond_t* cond;
+    pthread_mutex_t sleep_mutex;
+    pthread_cond_t sleep_cond;
+    bool is_interrupt;
 };
 
 #endif //TESTGIF_PTHREADSLEEP_H

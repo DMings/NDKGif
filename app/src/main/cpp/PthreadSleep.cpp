@@ -4,17 +4,16 @@
 
 #include "PthreadSleep.h"
 
-pthread_mutex_t PthreadSleep::sleep_mutex = PTHREAD_MUTEX_INITIALIZER;
-pthread_cond_t PthreadSleep::sleep_cond = PTHREAD_COND_INITIALIZER;
-
-PthreadSleep::PthreadSleep() : mutex(NULL), cond(NULL) {
-
+PthreadSleep::PthreadSleep() : is_interrupt(false) {
+    pthread_mutex_init(&sleep_mutex, NULL);
+    pthread_cond_init(&sleep_cond, NULL);
 }
 
-PthreadSleep::PthreadSleep(pthread_mutex_t *mutex, pthread_cond_t *cond) {
-    this->mutex = mutex;
-    this->cond = cond;
+PthreadSleep::~PthreadSleep() {
+    pthread_mutex_destroy(&sleep_mutex);
+    pthread_cond_destroy(&sleep_cond);
 }
+
 
 void PthreadSleep::msleep(unsigned int ms) {
     struct timespec deadline;
@@ -31,25 +30,22 @@ void PthreadSleep::msleep(unsigned int ms) {
         deadline.tv_nsec -= 1000000000L;
         deadline.tv_sec++;
     }
-    if (this->mutex != NULL && this->cond != NULL) {
-        pthread_mutex_lock(this->mutex);
-        pthread_cond_timedwait(this->cond, this->mutex, &deadline);
-        pthread_mutex_unlock(this->mutex);
-    } else {
-        pthread_mutex_lock(&sleep_mutex);
+    pthread_mutex_lock(&sleep_mutex);
+    if (!is_interrupt) {
         pthread_cond_timedwait(&sleep_cond, &sleep_mutex, &deadline);
-        pthread_mutex_unlock(&sleep_mutex);
     }
+    pthread_mutex_unlock(&sleep_mutex);
+}
+
+void PthreadSleep::reset() {
+    pthread_mutex_lock(&sleep_mutex);
+    is_interrupt = false;
+    pthread_mutex_unlock(&sleep_mutex);
 }
 
 void PthreadSleep::interrupt() {
-    if (this->mutex != NULL && this->cond != NULL) {
-        pthread_mutex_lock(this->mutex);
-        pthread_cond_signal(this->cond);
-        pthread_mutex_unlock(this->mutex);
-    } else {
-        pthread_mutex_lock(&sleep_mutex);
-        pthread_cond_signal(&sleep_cond);
-        pthread_mutex_unlock(&sleep_mutex);
-    }
+    pthread_mutex_lock(&sleep_mutex);
+    is_interrupt = true;
+    pthread_cond_signal(&sleep_cond);
+    pthread_mutex_unlock(&sleep_mutex);
 }

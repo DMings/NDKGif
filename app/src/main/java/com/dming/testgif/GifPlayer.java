@@ -1,17 +1,25 @@
 package com.dming.testgif;
 
+import android.content.Context;
+import android.content.res.AssetManager;
 import android.graphics.Bitmap;
 import android.os.Handler;
 import android.os.HandlerThread;
 
 public class GifPlayer {
 
+    public enum PlayState {
+        IDLE, PLAY, PLAYING, STOP
+    }
+
     private Bitmap mBitmap;
     private UpdateBitmap mUpdateBitmap;
     private HandlerThread mHandlerThread;
     private Handler mHandler;
+    private PlayState mPlayState;
 
     public GifPlayer() {
+        mPlayState = PlayState.IDLE;
         mHandlerThread = new HandlerThread("GifPlayer");
         mHandlerThread.start();
         mHandler = new Handler(mHandlerThread.getLooper());
@@ -19,64 +27,96 @@ public class GifPlayer {
 
     public void setUpdateBitmap(UpdateBitmap updateBitmap) {
         this.mUpdateBitmap = updateBitmap;
+
     }
 
-    public void play(final String gifPath) {
-        mHandler.post(new Runnable() {
-            @Override
-            public void run() {
-                if (load_gif(gifPath)) {
-                    mBitmap = Bitmap.createBitmap(get_width(), get_height(), Bitmap.Config.ARGB_8888);
-                    start(mBitmap, new Runnable() {
-                        @Override
-                        public void run() {
-                            if (mUpdateBitmap != null) {
-                                mUpdateBitmap.draw(mBitmap);
+    public boolean play(final Context context, final String gifPath) {
+        if (mPlayState == PlayState.IDLE) {
+            mPlayState = PlayState.PLAY;
+            mHandler.post(new Runnable() {
+                @Override
+                public void run() {
+                    if (native_load_gif(context.getResources().getAssets(), gifPath)) {
+                        mPlayState = PlayState.PLAYING;
+                        mBitmap = Bitmap.createBitmap(native_get_width(), native_get_height(), Bitmap.Config.ARGB_8888);
+                        native_start(mBitmap, new Runnable() {
+                            @Override
+                            public void run() {
+                                if (mUpdateBitmap != null) {
+                                    mUpdateBitmap.draw(mBitmap);
+                                }
                             }
-                        }
-                    });
+                        });
+                    }
                 }
-            }
-        });
+            });
+        } else {
+            return false;
+        }
+        return true;
     }
 
-    public void onPause() {
-        pause();
+    public boolean pause() {
+        if (mPlayState == PlayState.PLAYING) {
+            native_pause();
+            return true;
+        }
+        return false;
     }
 
-    public void onResume() {
-        resume();
+    public boolean resume() {
+        if (mPlayState == PlayState.PLAYING) {
+            native_resume();
+            return true;
+        }
+        return false;
     }
 
-    public void stop() {
-        release();
+    public boolean stop() {
+        if (mPlayState != PlayState.IDLE &&
+                mPlayState != PlayState.STOP) {
+            mPlayState = PlayState.STOP;
+            native_release();
+            mHandler.post(new Runnable() {
+                @Override
+                public void run() {
+                    mPlayState = PlayState.IDLE;
+                }
+            });
+            return true;
+        }
+        return false;
     }
 
-    public void onDestroy() {
-        release();
+    public void destroy() {
+        native_release();
+        mHandlerThread.quit();
         try {
             mHandlerThread.join();
         } catch (InterruptedException e) {
 //            e.printStackTrace();
         }
+//        if(mBitmap != null){
+//            mBitmap.recycle();
+//        }
     }
 
     static {
         System.loadLibrary("gifplayer");
     }
 
-    private static native boolean load_gif(String gifPath);
+    private static native boolean native_load_gif(AssetManager assetManager, String gifPath);
 
-    private static native void start(Bitmap bitmap, Runnable updateBitmap);
+    private static native void native_start(Bitmap bitmap, Runnable updateBitmap);
 
-    private static native int get_width();
+    private static native int native_get_width();
 
-    private static native int get_height();
+    private static native int native_get_height();
 
-    private static native void pause();
+    private static native void native_pause();
 
-    private static native void resume();
+    private static native void native_resume();
 
-    private static native void release();
+    private static native void native_release();
 
 }

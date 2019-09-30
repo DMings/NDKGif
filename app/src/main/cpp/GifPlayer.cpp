@@ -10,57 +10,79 @@
 #include "SyncTime.h"
 #include <android/asset_manager.h>
 #include <android/asset_manager_jni.h>
-
 #include <fcntl.h>
 
 #define UNSIGNED_LITTLE_ENDIAN(lo, hi)    ((lo) | ((hi) << 8))
 #define  MAKE_COLOR_ABGR(r, g, b) ((0xff) << 24 ) | ((b) << 16 ) | ((g) << 8 ) | ((r) & 0xff)
 
-static int width = 0;
-static int height = 0;
-static GifFileType *GifFile = NULL;
-static PthreadSleep pthreadSleep;
+static GifFileType *gifFile = NULL;
+static PthreadSleep threadSleep;
 static SyncTime syncTime;
 static pthread_mutex_t play_mutex = PTHREAD_MUTEX_INITIALIZER;
 static pthread_cond_t play_cond = PTHREAD_COND_INITIALIZER;
 static bool is_pause = false;
-static bool play_finish = false;
+static bool is_play_quit = false;
+static int gif_width = 0;
+static int gif_height = 0;
+enum PlayState {
+    IDLE, PREPARE, PLAYING
+};
+static enum PlayState play_state = IDLE; // 0 idle 1 playing -1 stop
 
 static void PrintGifError(int Error) {
     LOGI("PrintGifError: %s", GifErrorString(Error));
 }
 
-static int fileRead(GifFileType *gif, GifByteType *bytes, int size) {
-    FILE *file = (FILE *) gif->UserData;
-    LOGI("fileRead file: %p",file);
-    return (int) fread(bytes, 1, size, file);
+static void setPlayState(PlayState state) {
+    pthread_mutex_lock(&play_mutex);
+    play_state = state;
+    pthread_mutex_unlock(&play_mutex);
 }
 
-static int loadGifInfo(const char *FileName) {
-    int Error;
-    GifFile = NULL;
-    width = 0;
-    height = 0;
+static void getPlayState(PlayState *playState) {
+    pthread_mutex_lock(&play_mutex);
+    *playState = play_state;
+    pthread_mutex_unlock(&play_mutex);
+}
 
-    int FileHandle;
-    GifFileType *GifFile;
-    if ((FileHandle = open(FileName, O_RDONLY)) == -1) {
-        return -12;
+static int fileRead(GifFileType *gif, GifByteType *buf, int size) {
+    AAsset *asset = (AAsset *) gif->UserData;
+    return AAsset_read(asset, buf, (size_t) size);
+//    FILE *file = (FILE *) gif->UserData;
+//    return (int) fread(buf, 1, size, file);
+}
+
+static int loadGifInfo(JNIEnv *env, jobject assetManager, const char *filename) {
+    int Error;
+    gif_width = 0;
+    gif_height = 0;
+    is_play_quit = false;
+    threadSleep.reset();
+    if (gifFile != NULL) {
+        DGifCloseFile(gifFile, &Error);
+        gifFile = NULL;
     }
-    LOGI("FileHandle: %d",FileHandle);
-    FILE *f = fdopen(FileHandle, "rb");
-    LOGI("fdopen f: %p",f);
-    if ((GifFile = DGifOpen(f, fileRead, &Error)) == NULL) {
+    setPlayState(PREPARE);
+    AAssetManager *mgr = AAssetManager_fromJava(env, assetManager);
+    AAsset *asset = AAssetManager_open(mgr, filename, AASSET_MODE_STREAMING);
+    if ((gifFile = DGifOpen(asset, fileRead, &Error)) == NULL) {
+        setPlayState(IDLE);
         PrintGifError(Error);
-        return -11;
+        return -1;
     }
-//    if ((GifFile = DGifOpenFileName(FileName, &Error)) == NULL) {
+//    FILE *f = fopen(filename, "rb");
+//    LOGI("fdopen f: %p", f);
+//    if ((gifFile = DGifOpen(f, fileRead, &Error)) == NULL) {
 //        PrintGifError(Error);
 //        return -1;
 //    }
-    width = GifFile->SWidth;
-    height = GifFile->SHeight;
-    LOGI("gif SWidth: %d SHeight: %d", GifFile->SWidth, GifFile->SHeight);
+//    if ((gifFile = DGifOpenFileName(FileName, &Error)) == NULL) {
+//        PrintGifError(Error);
+//        return -1;
+//    }
+    gif_width = gifFile->SWidth;
+    gif_height = gifFile->SHeight;
+    LOGI("gif SWidth: %d SHeight: %d", gifFile->SWidth, gifFile->SHeight);
     return 0;
 }
 
@@ -76,11 +98,11 @@ static void setColorARGB(uint32_t *sPixels, ColorMapObject *colorMap, int transp
 }
 
 // RGBA_8888
-static void
-drawBitmap(JNIEnv *env, jobject bitmap, SavedImage *SavedImages, ColorMapObject *ColorMap,
-           GifRowType *ScreenBuffer,
-           int left,
-           int top, int width, int height, int transparentColorIndex) {
+static void drawBitmap(JNIEnv *env, jobject bitmap,
+                       SavedImage *SavedImages, ColorMapObject *ColorMap,
+                       GifRowType *ScreenBuffer,
+                       int left,
+                       int top, int width, int height, int transparentColorIndex) {
     //
     AndroidBitmapInfo bitmapInfo;
     void *pixels;
@@ -105,7 +127,7 @@ drawBitmap(JNIEnv *env, jobject bitmap, SavedImage *SavedImages, ColorMapObject 
 }
 
 
-static int GIF2RGB(JNIEnv *env, jobject bitmap, jobject runnable) {
+static void playGif(JNIEnv *env, jobject bitmap, jobject runnable) {
     int i, j, Row, Col, Width, Height, ExtCode;
     GifRecordType RecordType;
     GifByteType *Extension;
@@ -121,111 +143,104 @@ static int GIF2RGB(JNIEnv *env, jobject bitmap, jobject runnable) {
     int32_t delayTime = 0;
     int32_t transparentColorIndex = NO_TRANSPARENT_COLOR;
 
+    setPlayState(PLAYING);
+    syncTime.reset_clock();
+
     jclass runClass = env->GetObjectClass(runnable);
     jmethodID runMethod = env->GetMethodID(runClass, "run", "()V");
 
-    /*
-     * Allocate the screen as vector of column of rows. Note this
-     * screen is device independent - it's the screen defined by the
-     * GIF file parameters.
-     */
     if ((ScreenBuffer = (GifRowType *)
-            malloc(GifFile->SHeight * sizeof(GifRowType))) == NULL) {
+            malloc(gifFile->SHeight * sizeof(GifRowType))) == NULL) {
         LOGI("Failed to allocate memory required, aborted.");
-        return -11;
+        goto end;
     }
-    size = GifFile->SWidth * sizeof(GifPixelType);/* Size in bytes one row.*/
-    if ((ScreenBuffer[0] = (GifRowType) malloc(size)) == NULL) /* First row. */
-    {
+    size = gifFile->SWidth * sizeof(GifPixelType);
+    if ((ScreenBuffer[0] = (GifRowType) malloc(size)) == NULL) {
         LOGE("Failed to allocate memory required, aborted.");
-        return -3;
+        goto end;
     }
     GifPixelType *buffer;
     buffer = (GifPixelType *) (ScreenBuffer[0]);
-    for (i = 0; i < GifFile->SWidth; i++)  /* Set its color to BackGround. */
-        buffer[i] = (GifPixelType) GifFile->SBackGroundColor;
-    for (i = 1; i < GifFile->SHeight; i++) {
-        /* Allocate the other rows, and set their color to background too: */
+    for (i = 0; i < gifFile->SWidth; i++)
+        buffer[i] = (GifPixelType) gifFile->SBackGroundColor;
+    for (i = 1; i < gifFile->SHeight; i++) {
         if ((ScreenBuffer[i] = (GifRowType) malloc(size)) == NULL) {
             LOGI("Failed to allocate memory required, aborted.");
-            return -4;
+            goto end;
         }
         memcpy(ScreenBuffer[i], ScreenBuffer[0], size);
     }
     do {
-        if (DGifGetRecordType(GifFile, &RecordType) == GIF_ERROR) {
-            PrintGifError(GifFile->Error);
-            return -5;
+        if (DGifGetRecordType(gifFile, &RecordType) == GIF_ERROR) {
+            PrintGifError(gifFile->Error);
+            goto end;
         }
         switch (RecordType) {
             case IMAGE_DESC_RECORD_TYPE:
-                if (DGifGetImageDesc(GifFile) == GIF_ERROR) {
-                    PrintGifError(GifFile->Error);
-                    return -6;
+                if (DGifGetImageDesc(gifFile) == GIF_ERROR) {
+                    PrintGifError(gifFile->Error);
+                    goto end;
                 }
-                sp = &GifFile->SavedImages[GifFile->ImageCount - 1];
-                sp->RasterBits = (unsigned char *) reallocarray(NULL, width * height +
-                                                                      sizeof(int32_t) * 2,
-                                                                sizeof(GifPixelType));
+                sp = &gifFile->SavedImages[gifFile->ImageCount - 1];
+                sp->RasterBits = (unsigned char *) malloc(
+                        sizeof(GifPixelType) * gif_width * gif_height +
+                        sizeof(int32_t) * 2);
                 int32_t *p2;
                 p2 = (int32_t *) sp->RasterBits;
                 p2[0] = delayTime;
                 p2[1] = transparentColorIndex;
                 delayTime = 0;
-//                transparentColorIndex = NO_TRANSPARENT_COLOR;
-                LOGI(">>>time: %d tColorIndex: %d", p2[0], transparentColorIndex);
+//                LOGI(">>>time: %d tColorIndex: %d", p2[0], transparentColorIndex);
                 //
-                Row = GifFile->Image.Top; /* Image Position relative to Screen. */
-                Col = GifFile->Image.Left;
-                Width = GifFile->Image.Width;
-                Height = GifFile->Image.Height;
+                Row = gifFile->Image.Top;
+                Col = gifFile->Image.Left;
+                Width = gifFile->Image.Width;
+                Height = gifFile->Image.Height;
 
-                LOGI("GifFile Image %d at (%d, %d) [%dx%d]", ++ImageNum, Col, Row, Width, Height);
+//                LOGI("gifFile Image %d at (%d, %d) [%dx%d]", ++ImageNum, Col, Row, Width, Height);
 
-                if (GifFile->Image.Left + GifFile->Image.Width > GifFile->SWidth ||
-                    GifFile->Image.Top + GifFile->Image.Height > GifFile->SHeight) {
+                if (gifFile->Image.Left + gifFile->Image.Width > gifFile->SWidth ||
+                    gifFile->Image.Top + gifFile->Image.Height > gifFile->SHeight) {
                     LOGI("Image %d is not confined to screen dimension, aborted", ImageNum);
-                    return -7;
+                    goto end;
                 }
-                if (GifFile->Image.Interlace) {
-                    /* Need to perform 4 passes on the images: */
+                if (gifFile->Image.Interlace) {
                     for (i = 0; i < 4; i++)
                         for (j = Row + InterlacedOffset[i]; j < Row + Height;
                              j += InterlacedJumps[i]) {
-                            if (DGifGetLine(GifFile, &ScreenBuffer[j][Col],
+                            if (DGifGetLine(gifFile, &ScreenBuffer[j][Col],
                                             Width) == GIF_ERROR) {
-                                PrintGifError(GifFile->Error);
-                                return -8;
+                                PrintGifError(gifFile->Error);
+                                goto end;
                             }
                         }
                 } else {
                     for (i = 0; i < Height; i++) {
-                        if (DGifGetLine(GifFile, &ScreenBuffer[Row++][Col],
+                        if (DGifGetLine(gifFile, &ScreenBuffer[Row++][Col],
                                         Width) == GIF_ERROR) {
-                            PrintGifError(GifFile->Error);
-                            return -9;
+                            PrintGifError(gifFile->Error);
+                            goto end;
                         }
                     }
                 }
-                ColorMap = (GifFile->Image.ColorMap
-                            ? GifFile->Image.ColorMap
-                            : GifFile->SColorMap);
+                ColorMap = (gifFile->Image.ColorMap
+                            ? gifFile->Image.ColorMap
+                            : gifFile->SColorMap);
                 drawBitmap(env, bitmap, sp, ColorMap, ScreenBuffer,
-                           GifFile->Image.Left, GifFile->Image.Top,
-                           GifFile->Image.Left + Width, GifFile->Image.Top + Height,
+                           gifFile->Image.Left, gifFile->Image.Top,
+                           gifFile->Image.Left + Width, gifFile->Image.Top + Height,
                            transparentColorIndex);
                 env->CallVoidMethod(runnable, runMethod);
                 break;
             case EXTENSION_RECORD_TYPE:
-                /* Skip any extension blocks in file: */
-                if (DGifGetExtension(GifFile, &ExtCode, &Extension) == GIF_ERROR) {
-                    PrintGifError(GifFile->Error);
-                    return -10;
+                if (DGifGetExtension(gifFile, &ExtCode, &Extension) == GIF_ERROR) {
+                    PrintGifError(gifFile->Error);
+                    goto end;
                 }
                 if (ExtCode == GRAPHICS_EXT_FUNC_CODE) {
                     if (Extension[0] != 4) {
                         PrintGifError(GIF_ERROR);
-                        return -20;
+                        goto end;
                     }
                     GifExtension = Extension + 1;
                     delayTime = UNSIGNED_LITTLE_ENDIAN(GifExtension[1], GifExtension[2]);
@@ -244,36 +259,43 @@ static int GIF2RGB(JNIEnv *env, jobject bitmap, jobject runnable) {
 
                     unsigned int dt = 0;
                     dt = syncTime.synchronize_time(delayTime * 10);
-                    pthreadSleep.msleep(dt);
+                    threadSleep.msleep(dt);
                     syncTime.set_clock();
                 }
                 while (Extension != NULL) {
-                    if (DGifGetExtensionNext(GifFile, &Extension) == GIF_ERROR) {
-                        PrintGifError(GifFile->Error);
-                        return -11;
+                    if (DGifGetExtensionNext(gifFile, &Extension) == GIF_ERROR) {
+                        PrintGifError(gifFile->Error);
+                        goto end;
                     }
                 }
                 break;
             case TERMINATE_RECORD_TYPE:
                 break;
-            default:            /* Should be trapped by DGifGetRecordType. */
+            default:
                 break;
         }
-    } while (RecordType != TERMINATE_RECORD_TYPE && !play_finish);
+    } while (RecordType != TERMINATE_RECORD_TYPE && !is_play_quit);
 
+    // 释放不再使用变量
     free(ScreenBuffer);
+    ScreenBuffer = NULL;
+    if (gifFile->UserData) {
+        AAsset *asset = (AAsset *) gifFile->UserData;
+        AAsset_close(asset);
+        gifFile->UserData = NULL;
+    }
+    //释放不再使用变量
 
     syncTime.reset_clock();
-//    ColorMapObject *ColorMap;
-    while (!play_finish) {
-        for (int t = 0; t < GifFile->ImageCount; t++) {
-            SavedImage frame = GifFile->SavedImages[t];
+    while (!is_play_quit) {
+        for (int t = 0; t < gifFile->ImageCount; t++) {
+            SavedImage frame = gifFile->SavedImages[t];
             GifImageDesc frameInfo = frame.ImageDesc;
-            LOGI("GifFile Image %d at (%d, %d) [%dx%d]", t, frameInfo.Left, frameInfo.Top,
-                 frameInfo.Width, frameInfo.Height);
+//            LOGI("gifFile Image %d at (%d, %d) [%dx%d]", t, frameInfo.Left, frameInfo.Top,
+//                 frameInfo.Width, frameInfo.Height);
             ColorMap = (frameInfo.ColorMap
                         ? frameInfo.ColorMap
-                        : GifFile->SColorMap);
+                        : gifFile->SColorMap);
             //
             AndroidBitmapInfo bitmapInfo;
             void *pixels;
@@ -287,7 +309,7 @@ static int GIF2RGB(JNIEnv *env, jobject bitmap, jobject runnable) {
             p1 = (int32_t *) frame.RasterBits;
             d_time = p1[0];
             tColorIndex = p1[1];
-            LOGI("d_time: %d tColorIndex: %d", d_time, tColorIndex);
+//            LOGI("d_time: %d tColorIndex: %d", d_time, tColorIndex);
             //
             pthread_mutex_lock(&play_mutex);
             if (is_pause) {
@@ -299,7 +321,7 @@ static int GIF2RGB(JNIEnv *env, jobject bitmap, jobject runnable) {
             //
             unsigned int dt = 0;
             dt = syncTime.synchronize_time(d_time * 10);
-            pthreadSleep.msleep(dt);
+            threadSleep.msleep(dt);
             syncTime.set_clock();
             //
             int pointPixelIdx = sizeof(int32_t) * 2;
@@ -316,39 +338,54 @@ static int GIF2RGB(JNIEnv *env, jobject bitmap, jobject runnable) {
             env->CallVoidMethod(runnable, runMethod);
         }
     }
-    if (DGifCloseFile(GifFile, &Error) == GIF_ERROR) {
+    // free
+    end:
+    if (ScreenBuffer) {
+        free(ScreenBuffer);
+    }
+    if (gifFile->UserData) {
+        AAsset *asset = (AAsset *) gifFile->UserData;
+        AAsset_close(asset);
+        gifFile->UserData = NULL;
+    }
+    if (DGifCloseFile(gifFile, &Error) == GIF_ERROR) {
         PrintGifError(Error);
-        return -12;
     }
-    if (GifFile->UserData) {
-        FILE *file = (FILE *) GifFile->UserData;
-        fclose(file);
-    }
-    return 0;
+    gifFile = NULL;
+    setPlayState(IDLE);
 }
 
+/////////////////////////////////jni/////////////////////////////////////////////
 
-JNIEXPORT jboolean JNICALL load_gif_jni(JNIEnv *env, jclass type, jstring gifPath_) {
+JNIEXPORT jboolean JNICALL
+load_gif_jni(JNIEnv *env, jclass type, jobject assetManager, jstring gifPath_) {
     const char *gifPath = env->GetStringUTFChars(gifPath_, 0);
-
-    int ret = loadGifInfo(gifPath);
-
+    PlayState playState;
+    int ret;
+    getPlayState(&playState);
+    if (playState == IDLE) {
+        ret = loadGifInfo(env, assetManager, gifPath);
+    } else {
+        ret = -1;
+    }
     env->ReleaseStringUTFChars(gifPath_, gifPath);
-
     return (jboolean) (ret == 0 ? JNI_TRUE : JNI_FALSE);
 }
 
 JNIEXPORT void JNICALL start_jni(JNIEnv *env, jclass type, jobject bitmap,
                                  jobject runnable) {
-    pthread_mutex_lock(&play_mutex);
-    play_finish = false;
-    pthread_mutex_unlock(&play_mutex);
-    GIF2RGB(env, bitmap, runnable);
+    PlayState playState;
+    getPlayState(&playState);
+    if (playState == PREPARE) {
+        playGif(env, bitmap, runnable);
+    }
 }
 
 JNIEXPORT void JNICALL pause_jni(JNIEnv *env, jclass type) {
     pthread_mutex_lock(&play_mutex);
-    is_pause = true;
+    if (play_state == 1) {
+        is_pause = true;
+    }
     pthread_mutex_unlock(&play_mutex);
 }
 
@@ -359,30 +396,30 @@ JNIEXPORT void JNICALL resume_jni(JNIEnv *env, jclass type) {
     pthread_mutex_unlock(&play_mutex);
 }
 
-JNIEXPORT jint JNICALL get_width_jni(JNIEnv *env, jclass typee) {
-    return width;
+JNIEXPORT jint JNICALL get_width_jni(JNIEnv *env, jclass type) {
+    return gif_width;
 }
 
 JNIEXPORT jint JNICALL get_height_jni(JNIEnv *env, jclass type) {
-    return height;
+    return gif_height;
 }
 
 JNIEXPORT void JNICALL release_jni(JNIEnv *env, jclass type) {
     pthread_mutex_lock(&play_mutex);
-    play_finish = true;
+    is_play_quit = true;
     is_pause = false;
     pthread_cond_signal(&play_cond);
     pthread_mutex_unlock(&play_mutex);
-    pthreadSleep.interrupt();
+    threadSleep.interrupt();
 }
 
-JNINativeMethod method[] = {{"load_gif",   "(Ljava/lang/String;)Z",                            (void *) load_gif_jni},
-                            {"start",      "(Landroid/graphics/Bitmap;Ljava/lang/Runnable;)V", (void *) start_jni},
-                            {"pause",      "()V",                                              (void *) pause_jni},
-                            {"resume",     "()V",                                              (void *) resume_jni},
-                            {"get_width",  "()I",                                              (void *) get_width_jni},
-                            {"get_height", "()I",                                              (void *) get_height_jni},
-                            {"release",    "()V",                                              (void *) release_jni},
+JNINativeMethod method[] = {{"native_load_gif",   "(Landroid/content/res/AssetManager;Ljava/lang/String;)Z", (void *) load_gif_jni},
+                            {"native_start",      "(Landroid/graphics/Bitmap;Ljava/lang/Runnable;)V",        (void *) start_jni},
+                            {"native_pause",      "()V",                                                     (void *) pause_jni},
+                            {"native_resume",     "()V",                                                     (void *) resume_jni},
+                            {"native_get_width",  "()I",                                                     (void *) get_width_jni},
+                            {"native_get_height", "()I",                                                     (void *) get_height_jni},
+                            {"native_release",    "()V",                                                     (void *) release_jni},
 };
 
 jint registerNativeMethod(JNIEnv *env) {
