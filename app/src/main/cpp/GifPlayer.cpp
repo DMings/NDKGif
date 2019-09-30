@@ -50,7 +50,7 @@ static int fileRead(GifFileType *gif, GifByteType *buf, int size) {
     return AAsset_read(asset, buf, (size_t) size);
 }
 
-static int loadGifInfo(JNIEnv *env, jobject assetManager, const char *filename) {
+static int prepareGif(JNIEnv *env, jobject assetManager, const char *filename) {
     int Error;
     gif_width = 0;
     gif_height = 0;
@@ -96,27 +96,28 @@ static void setColorARGB(uint32_t *sPixels, ColorMapObject *colorMap, int transp
 static void drawBitmap(JNIEnv *env, jobject bitmap,
                        SavedImage *SavedImages, ColorMapObject *ColorMap,
                        GifRowType *ScreenBuffer,
-                       int left,
-                       int top, int width, int height, int transparentColorIndex) {
-    //
-    AndroidBitmapInfo bitmapInfo;
+                       int bitmapWidth,
+                       int left, int top,
+                       int width, int height, int transparentColorIndex) {
     void *pixels;
-    AndroidBitmap_getInfo(env, bitmap, &bitmapInfo);
     AndroidBitmap_lockPixels(env, bitmap, &pixels);
     uint32_t *sPixels = (uint32_t *) pixels;
     //
     int imageIndex = sizeof(int32_t) * 2;
-    //
+    int dH = bitmapWidth * top;
+    GifByteType colorIndex;
     for (int h = top; h < height; h++) {
         for (int w = left; w < width; w++) {
-            setColorARGB(&sPixels[(bitmapInfo.stride / 4) * h + w],
+            colorIndex = (GifByteType) ScreenBuffer[h][w];
+            setColorARGB(&sPixels[dH + w],
                          ColorMap,
                          transparentColorIndex,
-                         ScreenBuffer[h][w]);
+                         colorIndex);
             if (SavedImages != NULL) {
-                SavedImages->RasterBits[imageIndex++] = (GifByteType) ScreenBuffer[h][w];
+                SavedImages->RasterBits[imageIndex++] = colorIndex;
             }
         }
+        dH += bitmapWidth;
     }
     AndroidBitmap_unlockPixels(env, bitmap);
 }
@@ -137,9 +138,16 @@ static void playGif(JNIEnv *env, jobject bitmap, jobject runnable) {
     SavedImage *sp = NULL;
     int32_t delayTime = 0;
     int32_t transparentColorIndex = NO_TRANSPARENT_COLOR;
+    unsigned int dt = 0;
+    //
+    AndroidBitmapInfo bitmapInfo;
+    int bitmapWidth;
 
     setPlayState(PLAYING);
     syncTime.reset_clock();
+
+    AndroidBitmap_getInfo(env, bitmap, &bitmapInfo);
+    bitmapWidth = bitmapInfo.stride / 4;
 
     jclass runClass = env->GetObjectClass(runnable);
     jmethodID runMethod = env->GetMethodID(runClass, "run", "()V");
@@ -221,7 +229,7 @@ static void playGif(JNIEnv *env, jobject bitmap, jobject runnable) {
                 ColorMap = (gifFile->Image.ColorMap
                             ? gifFile->Image.ColorMap
                             : gifFile->SColorMap);
-                drawBitmap(env, bitmap, sp, ColorMap, ScreenBuffer,
+                drawBitmap(env, bitmap, sp, ColorMap, ScreenBuffer, bitmapWidth,
                            gifFile->Image.Left, gifFile->Image.Top,
                            gifFile->Image.Left + Width, gifFile->Image.Top + Height,
                            transparentColorIndex);
@@ -239,11 +247,11 @@ static void playGif(JNIEnv *env, jobject bitmap, jobject runnable) {
                     }
                     GifExtension = Extension + 1;
                     delayTime = UNSIGNED_LITTLE_ENDIAN(GifExtension[1], GifExtension[2]);
-                    if (GifExtension[0] & 0x01)
+                    if (GifExtension[0] & 0x01) {
                         transparentColorIndex = (int) GifExtension[3];
-                    else
+                    } else {
                         transparentColorIndex = NO_TRANSPARENT_COLOR;
-
+                    }
                     pthread_mutex_lock(&play_mutex);
                     if (is_pause) {
                         is_pause = false;
@@ -251,8 +259,6 @@ static void playGif(JNIEnv *env, jobject bitmap, jobject runnable) {
                         syncTime.reset_clock();
                     }
                     pthread_mutex_unlock(&play_mutex);
-
-                    unsigned int dt = 0;
                     dt = syncTime.synchronize_time(delayTime * 10);
                     threadSleep.msleep(dt);
                     syncTime.set_clock();
@@ -272,6 +278,9 @@ static void playGif(JNIEnv *env, jobject bitmap, jobject runnable) {
     } while (RecordType != TERMINATE_RECORD_TYPE && !is_play_quit);
 
     // 释放不再使用变量
+    for (i = 0; i < gifFile->SHeight; i++) {
+        free(ScreenBuffer[i]);
+    }
     free(ScreenBuffer);
     ScreenBuffer = NULL;
     if (gifFile->UserData) {
@@ -284,7 +293,7 @@ static void playGif(JNIEnv *env, jobject bitmap, jobject runnable) {
     syncTime.reset_clock();
     while (!is_play_quit) {
         for (int t = 0; t < gifFile->ImageCount; t++) {
-            if(is_play_quit){
+            if (is_play_quit) {
                 break;
             }
             SavedImage frame = gifFile->SavedImages[t];
@@ -295,9 +304,7 @@ static void playGif(JNIEnv *env, jobject bitmap, jobject runnable) {
                         ? frameInfo.ColorMap
                         : gifFile->SColorMap);
             //
-            AndroidBitmapInfo bitmapInfo;
             void *pixels;
-            AndroidBitmap_getInfo(env, bitmap, &bitmapInfo);
             AndroidBitmap_lockPixels(env, bitmap, &pixels);
             uint32_t *sPixels = (uint32_t *) pixels;
             //
@@ -317,19 +324,20 @@ static void playGif(JNIEnv *env, jobject bitmap, jobject runnable) {
             }
             pthread_mutex_unlock(&play_mutex);
             //
-            unsigned int dt = 0;
             dt = syncTime.synchronize_time(d_time * 10);
             threadSleep.msleep(dt);
             syncTime.set_clock();
             //
             int pointPixelIdx = sizeof(int32_t) * 2;
+            int dH = bitmapWidth * frameInfo.Top;
             for (int h = frameInfo.Top; h < frameInfo.Top + frameInfo.Height; h++) {
                 for (int w = frameInfo.Left; w < frameInfo.Left + frameInfo.Width; w++) {
-                    setColorARGB(&sPixels[(bitmapInfo.stride / 4) * h + w],
+                    setColorARGB(&sPixels[dH + w],
                                  ColorMap,
                                  tColorIndex,
                                  frame.RasterBits[pointPixelIdx++]);
                 }
+                dH += bitmapWidth;
             }
             //
             AndroidBitmap_unlockPixels(env, bitmap);
@@ -362,7 +370,7 @@ load_gif_jni(JNIEnv *env, jclass type, jobject assetManager, jstring gifPath_) {
     int ret;
     getPlayState(&playState);
     if (playState == IDLE) {
-        ret = loadGifInfo(env, assetManager, gifPath);
+        ret = prepareGif(env, assetManager, gifPath);
     } else {
         ret = -1;
     }

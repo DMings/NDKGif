@@ -104,9 +104,7 @@ public class GifPlayer {
         } catch (InterruptedException e) {
 //            e.printStackTrace();
         }
-//        if(mBitmap != null){
-//            mBitmap.recycle();
-//        }
+        mBitmap = null;
     }
 
     static {
