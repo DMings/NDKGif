@@ -6,14 +6,13 @@
     android:layout_height="match_parent"
     android:orientation="vertical"
     android:gravity="center"
-    android:background="@color/colorPrimary"
     tools:context=".MainActivity">
 
     <Button
         android:id="@+id/btn_one"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:text="load" />
+        android:text="play" />
 
     <Button
         android:id="@+id/btn_two"
