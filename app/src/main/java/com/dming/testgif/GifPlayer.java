@@ -9,11 +9,19 @@ import android.os.HandlerThread;
 public class GifPlayer {
 
     public enum PlayState {
-        IDLE, PLAY, PLAYING
+        IDLE, PREPARE, PLAYING, STOP
+    }
+
+    public interface OnGifListener {
+        void start();
+
+        void draw(Bitmap bitmap);
+
+        void end();
     }
 
     private Bitmap mBitmap;
-    private UpdateBitmap mUpdateBitmap;
+    private OnGifListener mOnGifListener;
     private HandlerThread mHandlerThread;
     private Handler mHandler;
     private PlayState mPlayState;
@@ -27,8 +35,8 @@ public class GifPlayer {
         mHandler = new Handler(mHandlerThread.getLooper());
     }
 
-    public void setUpdateBitmap(UpdateBitmap updateBitmap) {
-        this.mUpdateBitmap = updateBitmap;
+    public void setOnGifListener(OnGifListener onGifListener) {
+        this.mOnGifListener = onGifListener;
     }
 
     public boolean assetPlay(Context context, String gifPath) {
@@ -49,23 +57,29 @@ public class GifPlayer {
 
     private boolean play(final boolean once, final Context context, final String gifPath) {
         if (mPlayState == PlayState.IDLE) {
-            mPlayState = PlayState.PLAY;
+            mPlayState = PlayState.PREPARE;
             mHandler.post(new Runnable() {
                 @Override
                 public void run() {
+                    if (mOnGifListener != null) {
+                        mOnGifListener.start();
+                    }
                     if (native_load(mGifPlayerPtr, context != null ? context.getResources().getAssets() : null, gifPath)) {
                         mPlayState = PlayState.PLAYING;
                         mBitmap = Bitmap.createBitmap(native_get_width(mGifPlayerPtr), native_get_height(mGifPlayerPtr), Bitmap.Config.ARGB_8888);
                         native_start(mGifPlayerPtr, once, mBitmap, new Runnable() {
                             @Override
                             public void run() {
-                                if (mUpdateBitmap != null) {
-                                    mUpdateBitmap.draw(mBitmap);
+                                if (mOnGifListener != null) {
+                                    mOnGifListener.draw(mBitmap);
                                 }
                             }
                         });
                     }
                     mPlayState = PlayState.IDLE;
+                    if (mOnGifListener != null) {
+                        mOnGifListener.end();
+                    }
                 }
             });
         } else {
@@ -92,23 +106,32 @@ public class GifPlayer {
 
     public boolean stop() {
         if (mPlayState != PlayState.IDLE) {
+            mPlayState = PlayState.STOP;
             native_stop(mGifPlayerPtr);
+            mHandler.post(new Runnable() {
+                @Override
+                public void run() {
+                    mPlayState = PlayState.IDLE;
+                }
+            });
             return true;
         }
         return false;
     }
 
     public void destroy() {
-        native_release(mGifPlayerPtr);
-        mHandlerThread.quit();
-//        try {
-//            mHandlerThread.join();
-//        } catch (InterruptedException e) {
-////            e.printStackTrace();
-//        }
-        mBitmap = null;
-        mGifPlayerPtr = 0;
-        mHandler = null;
+        native_stop(mGifPlayerPtr);
+        mHandler.post(new Runnable() {
+            @Override
+            public void run() {
+                native_release(mGifPlayerPtr);
+                mGifPlayerPtr = 0;
+                mBitmap = null;
+                mHandler = null;
+                mHandlerThread.quit();
+                mHandlerThread = null;
+            }
+        });
     }
 
     static {

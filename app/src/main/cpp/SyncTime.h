@@ -12,8 +12,6 @@ class SyncTime {
 
 public:
 
-    void reset_clock();
-
     void set_clock();
 
     unsigned int synchronize_time(int m_time);

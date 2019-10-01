@@ -77,9 +77,7 @@ JNIEXPORT void JNICALL stop_jni(JNIEnv *env, jobject instance, jlong gifPlayerFo
 JNIEXPORT void JNICALL release_jni(JNIEnv *env, jobject instance, jlong gifPlayerFormJava) {
     GifPlayer *gifPlayer = (GifPlayer *) gifPlayerFormJava;
     if (gifPlayer) {
-        gifPlayer->release();
         delete (gifPlayer);
-        gifPlayer = NULL;
     }
 }
 

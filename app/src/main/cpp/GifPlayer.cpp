@@ -134,7 +134,6 @@ void GifPlayer::playGif(JNIEnv *env, bool once, jobject bitmap, jobject runnable
     int bitmapWidth;
 
     setPlayState(PLAYING);
-    syncTime.reset_clock();
 
     AndroidBitmap_getInfo(env, bitmap, &bitmapInfo);
     bitmapWidth = bitmapInfo.stride / 4;
@@ -163,6 +162,7 @@ void GifPlayer::playGif(JNIEnv *env, bool once, jobject bitmap, jobject runnable
         }
         memcpy(ScreenBuffer[i], ScreenBuffer[0], size);
     }
+    syncTime.set_clock();
     do {
         if (DGifGetRecordType(gifFile, &RecordType) == GIF_ERROR) {
             PrintGifError(gifFile->Error);
@@ -182,7 +182,6 @@ void GifPlayer::playGif(JNIEnv *env, bool once, jobject bitmap, jobject runnable
                 user_image_data[0] = delayTime;
                 user_image_data[1] = transparentColorIndex;
                 user_image_data[2] = disposalMode;
-                delayTime = 0;
 //                LOGI(">>>time: %d tColorIndex: %d", p2[0], transparentColorIndex);
                 //
                 Row = gifFile->Image.Top;
@@ -221,12 +220,24 @@ void GifPlayer::playGif(JNIEnv *env, bool once, jobject bitmap, jobject runnable
                             ? gifFile->Image.ColorMap
                             : gifFile->SColorMap);
                 //
+                dt = syncTime.synchronize_time(delayTime * 10);
+                threadSleep.msleep(dt);
+                delayTime = 0;
+                //
+                pthread_mutex_lock(&play_mutex);
+                if (is_pause) {
+                    is_pause = false;
+                    pthread_cond_wait(&play_cond, &play_mutex);
+                }
+                pthread_mutex_unlock(&play_mutex);
+                //
                 drawBitmap(env, gifFile->ImageCount - 1,
                            bitmap, sp, ColorMap, ScreenBuffer,
                            bitmapWidth,
                            gifFile->Image.Left, gifFile->Image.Top,
                            gifFile->Image.Left + Width, gifFile->Image.Top + Height);
                 env->CallVoidMethod(runnable, runMethod);
+                syncTime.set_clock();
                 break;
             case EXTENSION_RECORD_TYPE:
                 if (DGifGetExtension(gifFile, &ExtCode, &Extension) == GIF_ERROR) {
@@ -240,22 +251,15 @@ void GifPlayer::playGif(JNIEnv *env, bool once, jobject bitmap, jobject runnable
                     }
                     GifExtension = Extension + 1;
                     delayTime = UNSIGNED_LITTLE_ENDIAN(GifExtension[1], GifExtension[2]);
+                    if(delayTime < 1){ // 如果没有时间，写个默认6。。。
+                        delayTime = 6;
+                    }
                     if (GifExtension[0] & 0x01) {
                         transparentColorIndex = (int) GifExtension[3];
                     } else {
                         transparentColorIndex = NO_TRANSPARENT_COLOR;
                     }
                     disposalMode = (GifExtension[0] >> 2) & 0x07;
-                    pthread_mutex_lock(&play_mutex);
-                    if (is_pause) {
-                        is_pause = false;
-                        pthread_cond_wait(&play_cond, &play_mutex);
-                        syncTime.reset_clock();
-                    }
-                    pthread_mutex_unlock(&play_mutex);
-                    dt = syncTime.synchronize_time(delayTime * 10);
-                    threadSleep.msleep(dt);
-                    syncTime.set_clock();
                 }
                 while (Extension != NULL) {
                     if (DGifGetExtensionNext(gifFile, &Extension) == GIF_ERROR) {
@@ -284,7 +288,7 @@ void GifPlayer::playGif(JNIEnv *env, bool once, jobject bitmap, jobject runnable
     }
     //释放不再使用变量
 
-    syncTime.reset_clock();
+    syncTime.set_clock();
     while (!is_play_quit && !once) {
         for (int t = 0; t < gifFile->ImageCount; t++) {
             if (is_play_quit) {
@@ -298,30 +302,25 @@ void GifPlayer::playGif(JNIEnv *env, bool once, jobject bitmap, jobject runnable
                         ? frameInfo.ColorMap
                         : gifFile->SColorMap);
             //
-            void *pixels;
-            AndroidBitmap_lockPixels(env, bitmap, &pixels);
-            uint32_t *sPixels = (uint32_t *) pixels;
-            //
             int32_t d_time = 0;
             user_image_data = (int32_t *) frame.RasterBits;
             d_time = user_image_data[0];
             transparentColorIndex = user_image_data[1];
             disposalMode = user_image_data[2];
-//            LOGI("d_time: %d tColorIndex: %d", d_time, tColorIndex);
+            dt = syncTime.synchronize_time(d_time * 10);
+            threadSleep.msleep(dt);
             //
             pthread_mutex_lock(&play_mutex);
             if (is_pause) {
                 is_pause = false;
                 pthread_cond_wait(&play_cond, &play_mutex);
-                syncTime.reset_clock();
             }
             pthread_mutex_unlock(&play_mutex);
             //
-            dt = syncTime.synchronize_time(d_time * 10);
-            threadSleep.msleep(dt);
-            syncTime.set_clock();
-            //
-            LOGI("synchronize_time");
+            void *pixels;
+            AndroidBitmap_lockPixels(env, bitmap, &pixels);
+            uint32_t *sPixels = (uint32_t *) pixels;
+//           LOGI("d_time: %d tColorIndex: %d", d_time, tColorIndex);
             //
             int pointPixelIdx = sizeof(int32_t) * DATA_OFFSET;
             int dH = bitmapWidth * frameInfo.Top;
@@ -337,6 +336,8 @@ void GifPlayer::playGif(JNIEnv *env, bool once, jobject bitmap, jobject runnable
             //
             AndroidBitmap_unlockPixels(env, bitmap);
             env->CallVoidMethod(runnable, runMethod);
+            //
+            syncTime.set_clock();
         }
     }
     // free

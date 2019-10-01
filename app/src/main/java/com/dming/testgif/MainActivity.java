@@ -1,7 +1,6 @@
 package com.dming.testgif;
 
 import android.Manifest;
-import android.content.res.AssetManager;
 import android.graphics.Bitmap;
 import android.os.Build;
 import android.os.Bundle;
@@ -24,7 +23,12 @@ public class MainActivity extends AppCompatActivity {
         }
         mIvShow = findViewById(R.id.iv_show);
         mGifPlayer = new GifPlayer();
-        mGifPlayer.setUpdateBitmap(new UpdateBitmap() {
+        mGifPlayer.setOnGifListener(new GifPlayer.OnGifListener() {
+            @Override
+            public void start() {
+                Log.i("DMUI", "gif start");
+            }
+
             @Override
             public void draw(final Bitmap bitmap) {
                 runOnUiThread(new Runnable() {
@@ -34,11 +38,16 @@ public class MainActivity extends AppCompatActivity {
                     }
                 });
             }
+
+            @Override
+            public void end() {
+                Log.i("DMUI", "gif end");
+            }
         });
         findViewById(R.id.btn_one).setOnClickListener(new View.OnClickListener() {
             @Override
             public void onClick(View v) {
-                mGifPlayer.assetPlay(false,MainActivity.this, "mogutou.gif");
+                mGifPlayer.assetPlay(false, MainActivity.this, "mogutou.gif");
                 // 外部目录play
 //                File file = new File(Environment.getExternalStorageDirectory(), "1/test.gif");
 //                if (file.exists()) {
