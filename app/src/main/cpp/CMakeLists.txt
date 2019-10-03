@@ -10,6 +10,7 @@ add_library(
         SyncTime.cpp
         GifPlayer.cpp
         GifJni.cpp
+        GLUtils.cpp
         ${GIF_DIRECTORIES}
 #        giflib/dgif_lib.c
 #        giflib/egif_lib.c

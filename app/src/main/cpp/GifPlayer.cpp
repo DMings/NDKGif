@@ -10,6 +10,7 @@
 #include <android/asset_manager_jni.h>
 #include <fcntl.h>
 #include "GifPlayer.h"
+#include "GLUtils.h"
 
 #define DATA_OFFSET 3
 
@@ -84,7 +85,7 @@ void GifPlayer::setColorARGB(uint32_t *sPixels, int imageIndex,
 }
 
 // RGBA_8888
-void GifPlayer::drawGL(GLuint texture, uint32_t *pixels, int imageIndex,
+void GifPlayer::drawGL(uint texture, uint32_t *pixels, int imageIndex,
                        SavedImage *SavedImages, ColorMapObject *ColorMap,
                        GifRowType *ScreenBuffer,
                        int left, int top,
@@ -115,10 +116,10 @@ void GifPlayer::drawGL(GLuint texture, uint32_t *pixels, int imageIndex,
     glBindTexture(GL_TEXTURE_2D, 0);
 //        glRender.onDraw(mTexture);
 //        eglSwapBuffers(mEglDisplay, mEglSurface);
-//        GLUtils::checkErr("draw");
+        GLUtils::checkErr("draw");
 }
 
-void GifPlayer::playGif(JNIEnv *env, bool once, GLuint texture, jobject runnable) {
+void GifPlayer::playGif(JNIEnv *env, bool once, uint texture, jobject runnable) {
     int i, j, Row, Col, Width, Height, ExtCode;
     GifRecordType RecordType;
     GifByteType *Extension;
@@ -135,6 +136,8 @@ void GifPlayer::playGif(JNIEnv *env, bool once, GLuint texture, jobject runnable
     unsigned int dt = 0;
     int32_t *user_image_data;
     uint32_t *gl_data;
+    //
+    LOGI("texture: %d",texture);
     //
     setPlayState(PLAYING);
 
@@ -383,7 +386,7 @@ void GifPlayer::start(JNIEnv *env, jboolean once,
     PlayState playState;
     getPlayState(&playState);
     if (playState == PREPARE) {
-        playGif(env, once, texture, runnable);
+        playGif(env, once, (uint)texture, runnable);
     }
 }
 

@@ -61,9 +61,9 @@ private:
     void setColorARGB(uint32_t *sPixels, int imageIndex, ColorMapObject *colorMap,
                       GifByteType colorIndex);
 
-    void playGif(JNIEnv *env, bool once, GLuint texture, jobject runnable);
+    void playGif(JNIEnv *env, bool once, uint texture, jobject runnable);
 
-    void drawGL(GLuint texture, uint32_t *pixels, int imageIndex,
+    void drawGL(uint texture, uint32_t *pixels, int imageIndex,
                 SavedImage *SavedImages, ColorMapObject *ColorMap,
                 GifRowType *ScreenBuffer,
                 int left, int top,

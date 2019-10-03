@@ -2,9 +2,12 @@ package com.dming.testgif;
 
 import android.content.Context;
 import android.content.res.AssetManager;
-import android.graphics.Bitmap;
+import android.opengl.GLES20;
 import android.os.Handler;
 import android.os.HandlerThread;
+import android.view.Surface;
+import android.view.SurfaceHolder;
+import android.view.SurfaceView;
 
 public class GifPlayer {
 
@@ -15,7 +18,7 @@ public class GifPlayer {
     public interface OnGifListener {
         void start();
 
-        void draw(Bitmap bitmap);
+        void update();
 
         void end();
     }
@@ -26,13 +29,67 @@ public class GifPlayer {
     private Handler mHandler;
     private PlayState mPlayState;
     private long mGifPlayerPtr = 0;
+    private EglHelper mEglHelper;
+    private Surface mSurface;
+    private NoFilter mNoFilter;
+    private TestLineGraph mTestLineGraph;
+    private int mWidth, mHeight;
 
-    public GifPlayer() {
+    public GifPlayer(final SurfaceView surfaceView) {
+        mEglHelper = new EglHelper();
         mGifPlayerPtr = native_create();
         mPlayState = PlayState.IDLE;
         mHandlerThread = new HandlerThread("GifPlayer");
         mHandlerThread.start();
         mHandler = new Handler(mHandlerThread.getLooper());
+        surfaceView.getHolder().addCallback(new SurfaceHolder.Callback() {
+            @Override
+            public void surfaceCreated(final SurfaceHolder holder) {
+//                mSurface = holder.getSurface();
+//                mHandler.post(new Runnable() {
+//                    @Override
+//                    public void run() {
+//                        if (!mEglHelper.isGLCreate()) {
+//                            mEglHelper.initEgl(null, mSurface);
+//                            mEglHelper.glBindThread();
+//                            mNoFilter = new NoFilter(surfaceView.getContext());
+//                            mTestLineGraph = new TestLineGraph(surfaceView.getContext());
+//                        }
+//                    }
+//                });
+            }
+
+            @Override
+            public void surfaceChanged(SurfaceHolder holder, int format, int width, int height) {
+                mWidth = width;
+                mHeight = height;
+                mSurface = holder.getSurface();
+                mHandler.post(new Runnable() {
+                    @Override
+                    public void run() {
+                        if (!mEglHelper.isGLCreate()) {
+                            mEglHelper.initEgl(null, mSurface);
+                            mEglHelper.glBindThread();
+                            mNoFilter = new NoFilter(surfaceView.getContext());
+                            mTestLineGraph = new TestLineGraph(surfaceView.getContext());
+                        }
+                        GLES20.glClearColor(1, 1, 1, 1);
+                        GLES20.glClear(GLES20.GL_COLOR_BUFFER_BIT);
+                    }
+                });
+            }
+
+            @Override
+            public void surfaceDestroyed(SurfaceHolder holder) {
+                mHandler.post(new Runnable() {
+                    @Override
+                    public void run() {
+                        mNoFilter.onDestroy();
+                        mEglHelper.destroyEgl();
+                    }
+                });
+            }
+        });
     }
 
     public void setOnGifListener(OnGifListener onGifListener) {
@@ -56,7 +113,7 @@ public class GifPlayer {
     }
 
     private boolean play(final boolean once, final Context context, final String gifPath) {
-        if (mPlayState == PlayState.IDLE) {
+        if (mPlayState == PlayState.IDLE && mSurface != null) {
             mPlayState = PlayState.PREPARE;
             mHandler.post(new Runnable() {
                 @Override
@@ -70,8 +127,12 @@ public class GifPlayer {
                         native_start(mGifPlayerPtr, once, mTexture, new Runnable() {
                             @Override
                             public void run() {
+                                mTestLineGraph.onDraw(0, 0, mWidth, mHeight);
+                                FGLUtils.glCheckErr("test");
+                                mNoFilter.onDraw(mTexture, 0, 0, mWidth, mHeight);
+                                mEglHelper.swapBuffers();
                                 if (mOnGifListener != null) {
-//                                    mOnGifListener.draw();
+                                    mOnGifListener.update();
                                 }
                             }
                         });

@@ -1,21 +1,16 @@
 package com.dming.testgif;
 
 import android.Manifest;
-import android.graphics.Bitmap;
 import android.os.Build;
 import android.os.Bundle;
-import android.os.Environment;
 import android.support.v7.app.AppCompatActivity;
 import android.util.Log;
+import android.view.SurfaceView;
 import android.view.View;
-import android.widget.ImageView;
-import android.widget.Toast;
-
-import java.io.File;
 
 public class MainActivity extends AppCompatActivity {
 
-    private ImageView mIvShow;
+    private SurfaceView mSvShow;
     private GifPlayer mGifPlayer;
 
     @Override
@@ -25,8 +20,8 @@ public class MainActivity extends AppCompatActivity {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
             requestPermissions(new String[]{Manifest.permission.WRITE_EXTERNAL_STORAGE, Manifest.permission.READ_EXTERNAL_STORAGE}, 666);
         }
-        mIvShow = findViewById(R.id.iv_show);
-        mGifPlayer = new GifPlayer();
+        mSvShow = findViewById(R.id.sv_show);
+        mGifPlayer = new GifPlayer(mSvShow);
         mGifPlayer.setOnGifListener(new GifPlayer.OnGifListener() {
             @Override
             public void start() {
@@ -34,11 +29,11 @@ public class MainActivity extends AppCompatActivity {
             }
 
             @Override
-            public void draw(final Bitmap bitmap) {
+            public void update() {
                 runOnUiThread(new Runnable() {
                     @Override
                     public void run() {
-                        mIvShow.setImageBitmap(bitmap);
+                        DLog.i("update!!!");
                     }
                 });
             }
