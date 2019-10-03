@@ -23,6 +23,6 @@ add_library(
 
 target_link_libraries(
         gifplayer
-        jnigraphics
+        GLESv2
         log
         android)

@@ -27,11 +27,11 @@ load_jni(JNIEnv *env, jobject instance, jlong gifPlayerFormJava,
 }
 
 JNIEXPORT void JNICALL
-start_jni(JNIEnv *env, jobject instance, jlong gifPlayerFormJava, jboolean once, jobject bitmap,
+start_jni(JNIEnv *env, jobject instance, jlong gifPlayerFormJava, jboolean once, jint texture,
           jobject runnable) {
     GifPlayer *gifPlayer = (GifPlayer *) gifPlayerFormJava;
     if (gifPlayer) {
-        gifPlayer->start(env, once, bitmap, runnable);
+        gifPlayer->start(env, once, texture, runnable);
     }
 }
 
@@ -84,7 +84,7 @@ JNIEXPORT void JNICALL release_jni(JNIEnv *env, jobject instance, jlong gifPlaye
 JNINativeMethod method[] = {
         {"native_create",     "()J",                                                      (void *) create_jni},
         {"native_load",       "(JLandroid/content/res/AssetManager;Ljava/lang/String;)Z", (void *) load_jni},
-        {"native_start",      "(JZLandroid/graphics/Bitmap;Ljava/lang/Runnable;)V",       (void *) start_jni},
+        {"native_start",      "(JZILjava/lang/Runnable;)V",                               (void *) start_jni},
         {"native_pause",      "(J)V",                                                     (void *) pause_jni},
         {"native_resume",     "(J)V",                                                     (void *) resume_jni},
         {"native_get_width",  "(J)I",                                                     (void *) get_width_jni},

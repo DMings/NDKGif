@@ -4,7 +4,8 @@
 #include <string.h>
 #include "log.h"
 #include <unistd.h>
-#include <android/bitmap.h>
+#include <GLES2/gl2.h>
+#include <EGL/egl.h>
 #include <android/asset_manager.h>
 #include <android/asset_manager_jni.h>
 #include <fcntl.h>
@@ -83,23 +84,19 @@ void GifPlayer::setColorARGB(uint32_t *sPixels, int imageIndex,
 }
 
 // RGBA_8888
-void GifPlayer::drawBitmap(JNIEnv *env, int imageIndex, jobject bitmap,
-                           SavedImage *SavedImages, ColorMapObject *ColorMap,
-                           GifRowType *ScreenBuffer,
-                           int bitmapWidth,
-                           int left, int top,
-                           int width, int height) {
-    void *pixels;
-    AndroidBitmap_lockPixels(env, bitmap, &pixels);
-    uint32_t *sPixels = (uint32_t *) pixels;
-    //
+void GifPlayer::drawGL(GLuint texture, uint32_t *pixels, int imageIndex,
+                       SavedImage *SavedImages, ColorMapObject *ColorMap,
+                       GifRowType *ScreenBuffer,
+                       int left, int top,
+                       int width, int height) {
+
     int dataOffset = sizeof(int32_t) * DATA_OFFSET;
-    int dH = bitmapWidth * top;
+    int dH = gif_width * top;
     GifByteType colorIndex;
     for (int h = top; h < height; h++) {
         for (int w = left; w < width; w++) {
             colorIndex = (GifByteType) ScreenBuffer[h][w];
-            setColorARGB(&sPixels[dH + w],
+            setColorARGB(&pixels[dH + w],
                          imageIndex,
                          ColorMap,
                          colorIndex);
@@ -107,13 +104,21 @@ void GifPlayer::drawBitmap(JNIEnv *env, int imageIndex, jobject bitmap,
                 SavedImages->RasterBits[dataOffset++] = colorIndex;
             }
         }
-        dH += bitmapWidth;
+        dH += gif_width;
     }
-    AndroidBitmap_unlockPixels(env, bitmap);
+
+//    glClear(GL_COLOR_BUFFER_BIT);
+    glActiveTexture(GL_TEXTURE0);
+    glBindTexture(GL_TEXTURE_2D, texture);
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, gif_width, gif_height, 0, GL_RGBA, GL_UNSIGNED_BYTE,
+                 pixels);
+    glBindTexture(GL_TEXTURE_2D, 0);
+//        glRender.onDraw(mTexture);
+//        eglSwapBuffers(mEglDisplay, mEglSurface);
+//        GLUtils::checkErr("draw");
 }
 
-
-void GifPlayer::playGif(JNIEnv *env, bool once, jobject bitmap, jobject runnable) {
+void GifPlayer::playGif(JNIEnv *env, bool once, GLuint texture, jobject runnable) {
     int i, j, Row, Col, Width, Height, ExtCode;
     GifRecordType RecordType;
     GifByteType *Extension;
@@ -129,21 +134,22 @@ void GifPlayer::playGif(JNIEnv *env, bool once, jobject bitmap, jobject runnable
     int32_t delayTime = 0;
     unsigned int dt = 0;
     int32_t *user_image_data;
+    uint32_t *gl_data;
     //
-    AndroidBitmapInfo bitmapInfo;
-    int bitmapWidth;
-
     setPlayState(PLAYING);
-
-    AndroidBitmap_getInfo(env, bitmap, &bitmapInfo);
-    bitmapWidth = bitmapInfo.stride / 4;
 
     jclass runClass = env->GetObjectClass(runnable);
     jmethodID runMethod = env->GetMethodID(runClass, "run", "()V");
 
+    if ((gl_data = (uint32_t *)
+            malloc(gif_width * gif_height * sizeof(uint32_t))) == NULL) {
+        LOGI("Failed to allocate memory required, aborted1.");
+        goto end;
+    }
+
     if ((ScreenBuffer = (GifRowType *)
             malloc(gifFile->SHeight * sizeof(GifRowType))) == NULL) {
-        LOGI("Failed to allocate memory required, aborted.");
+        LOGI("Failed to allocate memory required, aborted2.");
         goto end;
     }
     size = gifFile->SWidth * sizeof(GifPixelType);
@@ -231,11 +237,10 @@ void GifPlayer::playGif(JNIEnv *env, bool once, jobject bitmap, jobject runnable
                 }
                 pthread_mutex_unlock(&play_mutex);
                 //
-                drawBitmap(env, gifFile->ImageCount - 1,
-                           bitmap, sp, ColorMap, ScreenBuffer,
-                           bitmapWidth,
-                           gifFile->Image.Left, gifFile->Image.Top,
-                           gifFile->Image.Left + Width, gifFile->Image.Top + Height);
+                drawGL(texture, gl_data, gifFile->ImageCount - 1,
+                       sp, ColorMap, ScreenBuffer,
+                       gifFile->Image.Left, gifFile->Image.Top,
+                       gifFile->Image.Left + Width, gifFile->Image.Top + Height);
                 env->CallVoidMethod(runnable, runMethod);
                 syncTime.set_clock();
                 break;
@@ -251,7 +256,7 @@ void GifPlayer::playGif(JNIEnv *env, bool once, jobject bitmap, jobject runnable
                     }
                     GifExtension = Extension + 1;
                     delayTime = UNSIGNED_LITTLE_ENDIAN(GifExtension[1], GifExtension[2]);
-                    if(delayTime < 1){ // 如果没有时间，写个默认6。。。
+                    if (delayTime < 1) { // 如果没有时间，写个默认6。。。
                         delayTime = 6;
                     }
                     if (GifExtension[0] & 0x01) {
@@ -317,24 +322,26 @@ void GifPlayer::playGif(JNIEnv *env, bool once, jobject bitmap, jobject runnable
             }
             pthread_mutex_unlock(&play_mutex);
             //
-            void *pixels;
-            AndroidBitmap_lockPixels(env, bitmap, &pixels);
-            uint32_t *sPixels = (uint32_t *) pixels;
 //           LOGI("d_time: %d tColorIndex: %d", d_time, tColorIndex);
             //
             int pointPixelIdx = sizeof(int32_t) * DATA_OFFSET;
-            int dH = bitmapWidth * frameInfo.Top;
+            int dH = gif_width * frameInfo.Top;
             for (int h = frameInfo.Top; h < frameInfo.Top + frameInfo.Height; h++) {
                 for (int w = frameInfo.Left; w < frameInfo.Left + frameInfo.Width; w++) {
-                    setColorARGB(&sPixels[dH + w],
+                    setColorARGB(&gl_data[dH + w],
                                  t,
                                  ColorMap,
                                  frame.RasterBits[pointPixelIdx++]);
                 }
-                dH += bitmapWidth;
+                dH += gif_width;
             }
+            glActiveTexture(GL_TEXTURE0);
+            glBindTexture(GL_TEXTURE_2D, texture);
+            glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, gif_width, gif_height, 0, GL_RGBA,
+                         GL_UNSIGNED_BYTE,
+                         gl_data);
+            glBindTexture(GL_TEXTURE_2D, 0);
             //
-            AndroidBitmap_unlockPixels(env, bitmap);
             env->CallVoidMethod(runnable, runMethod);
             //
             syncTime.set_clock();
@@ -372,11 +379,11 @@ jboolean GifPlayer::load_gif(JNIEnv *env, jobject assetManager, const char *gifP
 }
 
 void GifPlayer::start(JNIEnv *env, jboolean once,
-                      jobject bitmap, jobject runnable) {
+                      jint texture, jobject runnable) {
     PlayState playState;
     getPlayState(&playState);
     if (playState == PREPARE) {
-        playGif(env, once, bitmap, runnable);
+        playGif(env, once, texture, runnable);
     }
 }
 

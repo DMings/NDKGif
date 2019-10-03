@@ -21,7 +21,7 @@ class GifPlayer {
 public:
     jboolean load_gif(JNIEnv *env, jobject assetManager, const char *gifPath);
 
-    void start(JNIEnv *env, jboolean once, jobject bitmap, jobject runnable);
+    void start(JNIEnv *env, jboolean once, jint texture, jobject runnable);
 
     void pause();
 
@@ -61,15 +61,13 @@ private:
     void setColorARGB(uint32_t *sPixels, int imageIndex, ColorMapObject *colorMap,
                       GifByteType colorIndex);
 
-    void drawBitmap(JNIEnv *env, int imageIndex, jobject bitmap,
-                    SavedImage *SavedImages, ColorMapObject *ColorMap,
-                    GifRowType *ScreenBuffer,
-                    int bitmapWidth,
-                    int left, int top,
-                    int width, int height);
+    void playGif(JNIEnv *env, bool once, GLuint texture, jobject runnable);
 
-    void playGif(JNIEnv *env, bool once, jobject bitmap, jobject runnable);
-
+    void drawGL(GLuint texture, uint32_t *pixels, int imageIndex,
+                SavedImage *SavedImages, ColorMapObject *ColorMap,
+                GifRowType *ScreenBuffer,
+                int left, int top,
+                int width, int height);
 };
 
 #endif //TESTGIF_GIFJNI_H

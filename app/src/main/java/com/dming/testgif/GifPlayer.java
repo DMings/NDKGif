@@ -20,7 +20,7 @@ public class GifPlayer {
         void end();
     }
 
-    private Bitmap mBitmap;
+    private int mTexture;
     private OnGifListener mOnGifListener;
     private HandlerThread mHandlerThread;
     private Handler mHandler;
@@ -66,12 +66,12 @@ public class GifPlayer {
                     }
                     if (native_load(mGifPlayerPtr, context != null ? context.getResources().getAssets() : null, gifPath)) {
                         mPlayState = PlayState.PLAYING;
-                        mBitmap = Bitmap.createBitmap(native_get_width(mGifPlayerPtr), native_get_height(mGifPlayerPtr), Bitmap.Config.ARGB_8888);
-                        native_start(mGifPlayerPtr, once, mBitmap, new Runnable() {
+                        mTexture = FGLUtils.createTexture();
+                        native_start(mGifPlayerPtr, once, mTexture, new Runnable() {
                             @Override
                             public void run() {
                                 if (mOnGifListener != null) {
-                                    mOnGifListener.draw(mBitmap);
+//                                    mOnGifListener.draw();
                                 }
                             }
                         });
@@ -126,7 +126,6 @@ public class GifPlayer {
             public void run() {
                 native_release(mGifPlayerPtr);
                 mGifPlayerPtr = 0;
-                mBitmap = null;
                 mHandler = null;
                 mHandlerThread.quit();
                 mHandlerThread = null;
@@ -142,7 +141,7 @@ public class GifPlayer {
 
     private native boolean native_load(long ptr, AssetManager assetManager, String gifPath);
 
-    private native void native_start(long ptr, boolean once, Bitmap bitmap, Runnable updateBitmap);
+    private native void native_start(long ptr, boolean once, int texture, Runnable updateBitmap);
 
     private native int native_get_width(long ptr);
 
