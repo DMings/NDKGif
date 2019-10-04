@@ -32,7 +32,6 @@ public class GifPlayer {
     private EglHelper mEglHelper;
     private Surface mSurface;
     private NoFilter mNoFilter;
-    private TestLineGraph mTestLineGraph;
     private int mWidth, mHeight;
 
     public GifPlayer(final SurfaceView surfaceView) {
@@ -45,24 +44,6 @@ public class GifPlayer {
         surfaceView.getHolder().addCallback(new SurfaceHolder.Callback() {
             @Override
             public void surfaceCreated(final SurfaceHolder holder) {
-//                mSurface = holder.getSurface();
-//                mHandler.post(new Runnable() {
-//                    @Override
-//                    public void run() {
-//                        if (!mEglHelper.isGLCreate()) {
-//                            mEglHelper.initEgl(null, mSurface);
-//                            mEglHelper.glBindThread();
-//                            mNoFilter = new NoFilter(surfaceView.getContext());
-//                            mTestLineGraph = new TestLineGraph(surfaceView.getContext());
-//                        }
-//                    }
-//                });
-            }
-
-            @Override
-            public void surfaceChanged(SurfaceHolder holder, int format, int width, int height) {
-                mWidth = width;
-                mHeight = height;
                 mSurface = holder.getSurface();
                 mHandler.post(new Runnable() {
                     @Override
@@ -71,12 +52,18 @@ public class GifPlayer {
                             mEglHelper.initEgl(null, mSurface);
                             mEglHelper.glBindThread();
                             mNoFilter = new NoFilter(surfaceView.getContext());
-                            mTestLineGraph = new TestLineGraph(surfaceView.getContext());
+                            GLES20.glClearColor(1, 1, 1, 1);
+                            GLES20.glClear(GLES20.GL_COLOR_BUFFER_BIT);
                         }
-                        GLES20.glClearColor(1, 1, 1, 1);
-                        GLES20.glClear(GLES20.GL_COLOR_BUFFER_BIT);
                     }
                 });
+            }
+
+            @Override
+            public void surfaceChanged(SurfaceHolder holder, int format, int width, int height) {
+                mWidth = width;
+                mHeight = height;
+                mSurface = holder.getSurface();
             }
 
             @Override
@@ -127,9 +114,9 @@ public class GifPlayer {
                         native_start(mGifPlayerPtr, once, mTexture, new Runnable() {
                             @Override
                             public void run() {
-                                mTestLineGraph.onDraw(0, 0, mWidth, mHeight);
                                 FGLUtils.glCheckErr("test");
                                 mNoFilter.onDraw(mTexture, 0, 0, mWidth, mHeight);
+                                FGLUtils.glCheckErr("test down");
                                 mEglHelper.swapBuffers();
                                 if (mOnGifListener != null) {
                                     mOnGifListener.update();

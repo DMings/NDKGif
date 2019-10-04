@@ -1,7 +1,6 @@
 package com.dming.testgif;
 
 import android.content.Context;
-import android.opengl.GLES11Ext;
 import android.opengl.GLES20;
 import android.opengl.Matrix;
 
@@ -24,16 +23,16 @@ public class NoFilter {
             1, 1.0f, 0f,
     };
     public static final float[] TEX_VERTEX = {
-            0, 1,
-            0, 0,
             1, 0,
             1, 1,
+            0, 1,
+            0, 0,
     };
 
     protected int mProgram;
     protected int mPosition;
     protected int mTextureCoordinate;
-    protected int mImageOESTexture;
+    protected int mInputImageTexture;
     protected int uMvpMatrix;
     protected int uTexMatrix;
     protected float[] mMvpMatrix = new float[16];
@@ -47,10 +46,11 @@ public class NoFilter {
         mProgram = ShaderHelper.loadProgram(context, R.raw.process_ver, R.raw.process_frg);
         mPosition = GLES20.glGetAttribLocation(mProgram, "inputPosition");
         mTextureCoordinate = GLES20.glGetAttribLocation(mProgram, "inputTextureCoordinate");
-        mImageOESTexture = GLES20.glGetUniformLocation(mProgram, "inputImageOESTexture");
+        mInputImageTexture = GLES20.glGetUniformLocation(mProgram, "inputImageTexture");
         uMvpMatrix = GLES20.glGetUniformLocation(mProgram, "inputMatrix");
         uTexMatrix = GLES20.glGetUniformLocation(mProgram, "uTexMatrix");
         Matrix.setIdentityM(mMvpMatrix, 0);
+        FGLUtils.glCheckErr("NoFilter");
     }
 
     public void onDraw(int textureId, int x, int y, int width, int height) {
@@ -64,12 +64,12 @@ public class NoFilter {
         GLES20.glUniformMatrix4fv(uMvpMatrix, 1, false, mMvpMatrix, 0);
         GLES20.glUniformMatrix4fv(uTexMatrix, 1, false, mMvpMatrix, 0);
         GLES20.glActiveTexture(GLES20.GL_TEXTURE0);
-        GLES20.glBindTexture(GLES11Ext.GL_TEXTURE_EXTERNAL_OES, textureId);
-        GLES20.glUniform1i(mImageOESTexture, 0);
+        GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, textureId);
+        GLES20.glUniform1i(mInputImageTexture, 0);
         GLES20.glViewport(x, y, width, height);
         GLES20.glDrawElements(GLES20.GL_TRIANGLES, VERTEX_INDEX.length,
                 GLES20.GL_UNSIGNED_SHORT, mIndexSB);
-        GLES20.glBindTexture(GLES11Ext.GL_TEXTURE_EXTERNAL_OES, 0);
+        GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, 0);
         GLES20.glDisableVertexAttribArray(mPosition);
         GLES20.glDisableVertexAttribArray(mTextureCoordinate);
         GLES20.glUseProgram(0);

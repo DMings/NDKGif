@@ -33,7 +33,7 @@ public class MainActivity extends AppCompatActivity {
                 runOnUiThread(new Runnable() {
                     @Override
                     public void run() {
-                        DLog.i("update!!!");
+//                        DLog.i("update!!!");
                     }
                 });
             }
@@ -46,7 +46,7 @@ public class MainActivity extends AppCompatActivity {
         findViewById(R.id.btn_one).setOnClickListener(new View.OnClickListener() {
             @Override
             public void onClick(View v) {
-                mGifPlayer.assetPlay(false, MainActivity.this, "demo.gif");
+                mGifPlayer.assetPlay(false, MainActivity.this, "mogutou.gif");
 //                // 外部目录play
 //                File file = new File(Environment.getExternalStorageDirectory(), "1/test.gif");
 //                if (file.exists()) {

@@ -114,9 +114,7 @@ void GifPlayer::drawGL(uint texture, uint32_t *pixels, int imageIndex,
     glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, gif_width, gif_height, 0, GL_RGBA, GL_UNSIGNED_BYTE,
                  pixels);
     glBindTexture(GL_TEXTURE_2D, 0);
-//        glRender.onDraw(mTexture);
-//        eglSwapBuffers(mEglDisplay, mEglSurface);
-        GLUtils::checkErr("draw");
+    GLUtils::checkErr("draw");
 }
 
 void GifPlayer::playGif(JNIEnv *env, bool once, uint texture, jobject runnable) {
@@ -137,7 +135,7 @@ void GifPlayer::playGif(JNIEnv *env, bool once, uint texture, jobject runnable) 
     int32_t *user_image_data;
     uint32_t *gl_data;
     //
-    LOGI("texture: %d",texture);
+    LOGI("texture: %d", texture);
     //
     setPlayState(PLAYING);
 
@@ -386,7 +384,7 @@ void GifPlayer::start(JNIEnv *env, jboolean once,
     PlayState playState;
     getPlayState(&playState);
     if (playState == PREPARE) {
-        playGif(env, once, (uint)texture, runnable);
+        playGif(env, once, (uint) texture, runnable);
     }
 }
 
