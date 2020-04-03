@@ -1,5 +1,9 @@
-# android ndk使用giflib高性能显示gif
-ndk giflib转bitmap显示完整使用示例，非DGifSlurp缓慢方式，包含从asset读取、外部目录读取方式，速度秒开，内存占用小
+# android ndk使用giflib高性能显示gif  
+
+#### ndk giflib转bitmap显示完整使用示例，非DGifSlurp缓慢方式，包含从asset读取、外部目录读取方式，速度秒开，内存占用小
+
+ - 下面是演示效果，可直接下载试试 [演示apk](https://github.com/DMings/NDKGif/blob/master/show-gif/app-debug.apk)
+
 ![在这里插入图片描述](https://github.com/DMings/NDKGif/blob/master/show-gif/demo.gif)
 ### 什么是giflib?
 giflib是使用c源码编写的一个开源库，在android源码中已被使用的[android external](http://androidxref.com/9.0.0_r3/xref/external/giflib/)。
